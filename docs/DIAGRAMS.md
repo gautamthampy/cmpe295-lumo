@@ -49,7 +49,7 @@ graph TB
     end
 
     subgraph "External Services"
-        OpenAI[OpenAI API / LLM]
+        Gemini[Google Gemini API / LLM]
     end
 
     Browser --> Student
@@ -83,8 +83,8 @@ graph TB
     AnalyticsAPI --> PostgreSQL
     SessionAPI --> PostgreSQL
     
-    QuizAPI --> OpenAI
-    FeedbackAPI --> OpenAI
+    QuizAPI --> Gemini
+    FeedbackAPI --> Gemini
     
     LessonAPI --> MinIO
     AnalyticsAPI --> Redis
@@ -95,7 +95,7 @@ graph TB
     style PostgreSQL fill:#336791,color:#fff
     style Redis fill:#dc382d,color:#fff
     style MinIO fill:#c72e49,color:#fff
-    style OpenAI fill:#10a37f,color:#fff
+    style Gemini fill:#4285f4,color:#fff
 ```
 
 ### Multi-Agent Architecture
@@ -859,7 +859,7 @@ graph TB
     end
     
     subgraph "External Services"
-        OpenAI[OpenAI API]
+        Gemini[Google Gemini API]
         Monitoring[Datadog /<br/>New Relic]
     end
     
@@ -882,15 +882,15 @@ graph TB
     API1 --> S3
     API2 --> S3
     
-    API1 --> OpenAI
-    API2 --> OpenAI
+    API1 --> Gemini
+    API2 --> Gemini
     
     API1 --> Monitoring
     API2 --> Monitoring
     API3 --> Monitoring
     
     style PrimaryDB fill:#336791,color:#fff
-    style OpenAI fill:#10a37f,color:#fff
+    style Gemini fill:#4285f4,color:#fff
 ```
 
 ---
