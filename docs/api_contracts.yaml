@@ -1,0 +1,661 @@
+openapi: 3.0.3
+info:
+  title: LUMO API Contracts
+  description: API contracts for cross-component communication in LUMO
+  version: 1.0.0
+  contact:
+    name: LUMO Team
+    email: gautamsanthanu.thampy@sjsu.edu
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Lessons
+    description: Lesson content and management
+  - name: Quizzes
+    description: Quiz generation and management
+  - name: Feedback
+    description: Feedback and hint system
+  - name: Analytics
+    description: Analytics and attention metrics
+  - name: Sessions
+    description: Session management
+
+paths:
+  # ============================================
+  # LESSON ENDPOINTS (Gautam)
+  # ============================================
+  /lessons:
+    get:
+      tags: [Lessons]
+      summary: Get all lessons
+      parameters:
+        - name: subject
+          in: query
+          schema:
+            type: string
+        - name: grade_level
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: List of lessons
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Lesson'
+    post:
+      tags: [Lessons]
+      summary: Create a new lesson
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LessonCreate'
+      responses:
+        '201':
+          description: Lesson created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lesson'
+
+  /lessons/{lesson_id}:
+    get:
+      tags: [Lessons]
+      summary: Get a specific lesson
+      parameters:
+        - name: lesson_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Lesson details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lesson'
+        '404':
+          description: Lesson not found
+
+  /lessons/{lesson_id}/render:
+    get:
+      tags: [Lessons]
+      summary: Get rendered lesson content
+      parameters:
+        - name: lesson_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: user_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Rendered lesson content
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RenderedLesson'
+
+  # ============================================
+  # QUIZ ENDPOINTS (Alshama)
+  # ============================================
+  /quizzes/generate:
+    post:
+      tags: [Quizzes]
+      summary: Generate quiz for a lesson
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lesson_id, user_id]
+              properties:
+                lesson_id:
+                  type: string
+                  format: uuid
+                user_id:
+                  type: string
+                  format: uuid
+                difficulty_level:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+                question_count:
+                  type: integer
+                  minimum: 3
+                  maximum: 10
+      responses:
+        '200':
+          description: Quiz generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Quiz'
+
+  /quizzes/{quiz_id}:
+    get:
+      tags: [Quizzes]
+      summary: Get quiz details
+      parameters:
+        - name: quiz_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Quiz details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Quiz'
+
+  /quizzes/{quiz_id}/submit:
+    post:
+      tags: [Quizzes]
+      summary: Submit quiz answers
+      parameters:
+        - name: quiz_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id, answers]
+              properties:
+                user_id:
+                  type: string
+                  format: uuid
+                answers:
+                  type: array
+                  items:
+                    type: object
+                    required: [question_id, answer]
+                    properties:
+                      question_id:
+                        type: string
+                        format: uuid
+                      answer:
+                        type: string
+                      response_latency_ms:
+                        type: integer
+      responses:
+        '200':
+          description: Quiz results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuizResult'
+
+  # ============================================
+  # FEEDBACK ENDPOINTS (Bhavya)
+  # ============================================
+  /feedback/hint:
+    post:
+      tags: [Feedback]
+      summary: Request a hint for a question
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question_id, user_id, session_id]
+              properties:
+                question_id:
+                  type: string
+                  format: uuid
+                user_id:
+                  type: string
+                  format: uuid
+                session_id:
+                  type: string
+                  format: uuid
+                hint_level:
+                  type: integer
+                  minimum: 1
+                  maximum: 3
+                misconception_type:
+                  type: string
+      responses:
+        '200':
+          description: Hint provided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Hint'
+
+  /feedback/explanation:
+    post:
+      tags: [Feedback]
+      summary: Get explanation for incorrect answer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question_id, user_answer, correct_answer]
+              properties:
+                question_id:
+                  type: string
+                  format: uuid
+                user_answer:
+                  type: string
+                correct_answer:
+                  type: string
+                misconception_type:
+                  type: string
+      responses:
+        '200':
+          description: Explanation provided
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  explanation:
+                    type: string
+                  motivational_message:
+                    type: string
+
+  # ============================================
+  # ANALYTICS ENDPOINTS (Nivedita)
+  # ============================================
+  /analytics/events:
+    post:
+      tags: [Analytics]
+      summary: Ingest user event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Event data conforming to event_schema.json
+      responses:
+        '202':
+          description: Event accepted for processing
+
+  /analytics/dashboard/{user_id}:
+    get:
+      tags: [Analytics]
+      summary: Get dashboard data for a user
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: date_from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Dashboard data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardData'
+
+  /analytics/attention/{user_id}:
+    get:
+      tags: [Analytics]
+      summary: Get attention metrics for a user
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Attention metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttentionMetrics'
+
+  /analytics/mastery/{user_id}:
+    get:
+      tags: [Analytics]
+      summary: Get mastery scores for a user
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: subject
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Mastery scores
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MasteryScore'
+
+  # ============================================
+  # SESSION ENDPOINTS
+  # ============================================
+  /sessions:
+    post:
+      tags: [Sessions]
+      summary: Create a new session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id:
+                  type: string
+                  format: uuid
+                lesson_id:
+                  type: string
+                  format: uuid
+                device_type:
+                  type: string
+      responses:
+        '201':
+          description: Session created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session_id:
+                    type: string
+                    format: uuid
+                  started_at:
+                    type: string
+                    format: date-time
+
+  /sessions/{session_id}/end:
+    post:
+      tags: [Sessions]
+      summary: End a session
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Session ended
+
+components:
+  schemas:
+    Lesson:
+      type: object
+      required: [lesson_id, title, subject, grade_level, content_mdx]
+      properties:
+        lesson_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        subject:
+          type: string
+        grade_level:
+          type: integer
+          minimum: 1
+          maximum: 12
+        content_mdx:
+          type: string
+        misconception_tags:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [draft, active, archived]
+
+    LessonCreate:
+      type: object
+      required: [title, subject, grade_level, content_mdx]
+      properties:
+        title:
+          type: string
+        subject:
+          type: string
+        grade_level:
+          type: integer
+        content_mdx:
+          type: string
+        misconception_tags:
+          type: array
+          items:
+            type: string
+
+    RenderedLesson:
+      type: object
+      properties:
+        lesson_id:
+          type: string
+          format: uuid
+        html_content:
+          type: string
+        estimated_time_minutes:
+          type: integer
+        accessibility_score:
+          type: number
+          minimum: 0
+          maximum: 1
+
+    Quiz:
+      type: object
+      required: [quiz_id, lesson_id, questions]
+      properties:
+        quiz_id:
+          type: string
+          format: uuid
+        lesson_id:
+          type: string
+          format: uuid
+        questions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Question'
+        difficulty_level:
+          type: integer
+        estimated_time_minutes:
+          type: integer
+
+    Question:
+      type: object
+      required: [question_id, question_text, question_type, options]
+      properties:
+        question_id:
+          type: string
+          format: uuid
+        question_text:
+          type: string
+        question_type:
+          type: string
+          enum: [multiple_choice, true_false, fill_blank]
+        options:
+          type: array
+          items:
+            type: object
+            properties:
+              option_id:
+                type: string
+              option_text:
+                type: string
+              is_distractor:
+                type: boolean
+              misconception_type:
+                type: string
+
+    QuizResult:
+      type: object
+      properties:
+        quiz_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        score:
+          type: integer
+        total_questions:
+          type: integer
+        correct_answers:
+          type: integer
+        mastery_achieved:
+          type: boolean
+        question_results:
+          type: array
+          items:
+            type: object
+            properties:
+              question_id:
+                type: string
+                format: uuid
+              is_correct:
+                type: boolean
+              misconception_identified:
+                type: string
+              hint_used:
+                type: boolean
+
+    Hint:
+      type: object
+      properties:
+        hint_level:
+          type: integer
+        hint_text:
+          type: string
+        question_id:
+          type: string
+          format: uuid
+        misconception_type:
+          type: string
+
+    DashboardData:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        lessons_completed:
+          type: integer
+        quizzes_taken:
+          type: integer
+        overall_mastery:
+          type: number
+        strengths:
+          type: array
+          items:
+            type: string
+        weaknesses:
+          type: array
+          items:
+            type: string
+        time_spent_minutes:
+          type: integer
+        attention_summary:
+          $ref: '#/components/schemas/AttentionSummary'
+
+    AttentionMetrics:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        current_attention_score:
+          type: number
+        peak_hours:
+          type: array
+          items:
+            type: integer
+        average_response_latency_ms:
+          type: integer
+        drift_incidents:
+          type: integer
+        breaks_taken:
+          type: integer
+
+    AttentionSummary:
+      type: object
+      properties:
+        average_attention_score:
+          type: number
+        peak_focus_time:
+          type: string
+        drift_count:
+          type: integer
+
+    MasteryScore:
+      type: object
+      properties:
+        subject:
+          type: string
+        concept_tag:
+          type: string
+        mastery_level:
+          type: number
+          minimum: 0
+          maximum: 1
+        attempts:
+          type: integer
+        last_attempt_at:
+          type: string
+          format: date-time
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+security:
+  - BearerAuth: []
+
