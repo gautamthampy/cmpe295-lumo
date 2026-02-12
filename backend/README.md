@@ -6,11 +6,12 @@ FastAPI service exposing endpoints for content, sessions, and analytics.
 
 ```bash
 # Create virtual environment
-uv venv
+python3 -m venv .venv
 source .venv/bin/activate  # Windows: .\.venv\Scripts\activate
 
 # Install dependencies
-uv pip install -e .
+pip install --upgrade pip
+pip install -e .
 
 # Copy environment variables
 cp .env.example .env

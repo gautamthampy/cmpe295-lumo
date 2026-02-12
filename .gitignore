@@ -419,4 +419,4 @@ FodyWeavers.xsd
 *.msp
 
 # next js files
-.next
+.next.venv/

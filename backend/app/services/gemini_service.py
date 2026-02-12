@@ -98,7 +98,7 @@ class GeminiService:
         correct_answer: str,
         student_answer: str,
         is_correct: bool,
-    ) -> str:
+    ) -> Dict[str, str]:
         """
         Generate personalized feedback for a quiz answer
 
@@ -121,16 +121,31 @@ class GeminiService:
         Student's answer: {student_answer}
         Result: {'Correct' if is_correct else 'Incorrect'}
         
-        Provide brief, motivational feedback that:
-        - Acknowledges their effort
-        - Explains why the answer is correct/incorrect
-        - Encourages continued learning
-        
-        Keep it concise (2-3 sentences).
+        Provide the response in strict JSON format with two keys:
+        1. "explanation": Brief explanation of why the answer is correct/incorrect (2 sentences).
+        2. "motivation": A short, encouraging motivational message (1 sentence).
+
+        Example:
+        {{
+            "explanation": "You selected X, but the correct answer is Y because...",
+            "motivation": "You're doing great, keep it up!"
+        }}
         """
 
-        response = await self._generate_content(prompt)
-        return response
+        response_text = await self._generate_content(prompt)
+        
+        # Basic cleanup to ensure JSON parsing (remove markdown fences if present)
+        clean_text = response_text.replace("```json", "").replace("```", "").strip()
+        
+        import json
+        try:
+            return json.loads(clean_text)
+        except json.JSONDecodeError:
+            # Fallback if model fails to generate valid JSON
+            return {
+                "explanation": response_text,
+                "motivation": "Keep trying!"
+            }
 
     async def _generate_content(
         self,
