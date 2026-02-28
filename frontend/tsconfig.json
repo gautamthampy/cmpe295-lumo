@@ -1,10 +1,18 @@
 {
   "compilerOptions": {
+<<<<<<< HEAD
     "target": "ES2017",
+=======
+    "target": "es5",
+>>>>>>> origin/dev
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
+<<<<<<< HEAD
+=======
+    "forceConsistentCasingInFileNames": true,
+>>>>>>> origin/dev
     "noEmit": true,
     "esModuleInterop": true,
     "module": "esnext",
@@ -13,7 +21,15 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
+<<<<<<< HEAD
     "plugins": [{ "name": "next" }],
+=======
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+>>>>>>> origin/dev
     "paths": {
       "@/*": ["./*"]
     }
@@ -21,3 +37,7 @@
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
   "exclude": ["node_modules"]
 }
+<<<<<<< HEAD
+=======
+
+>>>>>>> origin/dev
