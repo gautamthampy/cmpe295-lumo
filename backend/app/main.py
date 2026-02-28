@@ -1,26 +1,21 @@
-"""
-LUMO Backend API - Main Application Entry Point
-"""
+"""LUMO Backend — FastAPI application entry point."""
+import time
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-import time
-from typing import Callable
 
 from app.core.config import settings
 from app.api.v1.router import api_router
 
-# Create FastAPI application
 app = FastAPI(
-    title=settings.PROJECT_NAME,
-    version=settings.VERSION,
-    description="Multi-agent AI Study Coach for Elementary Education",
-    openapi_url=f"{settings.API_V1_STR}/openapi.json",
-    docs_url=f"{settings.API_V1_STR}/docs",
-    redoc_url=f"{settings.API_V1_STR}/redoc",
+    title=settings.APP_NAME,
+    version=settings.APP_VERSION,
+    description="LUMO: Multi-Agent AI Tutoring System",
+    docs_url="/api/v1/docs",
+    redoc_url="/api/v1/redoc",
+    openapi_url="/api/v1/openapi.json",
 )
 
-# CORS middleware
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -32,38 +27,23 @@ app.add_middleware(
 
 # Request timing middleware
 @app.middleware("http")
-async def add_process_time_header(request: Request, call_next: Callable) -> JSONResponse:
-    """Add processing time to response headers"""
-    start_time = time.time()
+async def add_process_time_header(request: Request, call_next):
+    start = time.perf_counter()
     response = await call_next(request)
-    process_time = time.time() - start_time
-    response.headers["X-Process-Time"] = str(process_time)
+    duration_ms = round((time.perf_counter() - start) * 1000, 2)
+    response.headers["X-Process-Time-Ms"] = str(duration_ms)
     return response
 
 
-# Health check endpoint
-@app.get("/health", tags=["System"])
-async def health_check() -> dict:
-    """Health check endpoint"""
+# Health check
+@app.get("/health", tags=["Health"])
+async def health_check():
     return {
         "status": "healthy",
         "service": "lumo-backend",
-        "version": settings.VERSION,
+        "version": settings.APP_VERSION,
     }
 
 
-# Include API router
-app.include_router(api_router, prefix=settings.API_V1_STR)
-
-
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        log_level="info",
-    )
-
+# Mount API router
+app.include_router(api_router, prefix="/api/v1")

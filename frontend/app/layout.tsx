@@ -1,20 +1,15 @@
-import './globals.css';
 import type { Metadata } from 'next';
+import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'LUMO - AI Study Coach',
-  description: 'Multi-agent AI Study Coach for Elementary Education',
+  title: 'LUMO — AI Tutoring System',
+  description: 'Multi-agent AI tutoring for elementary education',
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body className="bg-gray-50 text-gray-900 antialiased">{children}</body>
     </html>
   );
 }
-

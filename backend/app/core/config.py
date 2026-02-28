@@ -1,69 +1,50 @@
-"""
-Application configuration using Pydantic Settings
-"""
+"""Application configuration using Pydantic Settings."""
 from pydantic_settings import BaseSettings
-from typing import List
+from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    """Application settings"""
-
-    # Project
-    PROJECT_NAME: str = "LUMO Backend API"
-    VERSION: str = "0.1.0"
-    API_V1_STR: str = "/api/v1"
-
-    # CORS
-    CORS_ORIGINS: List[str] = [
-        "http://localhost:3000",  # Next.js frontend
-        "http://localhost:8000",  # API docs
-    ]
+    # App
+    APP_NAME: str = "LUMO Backend"
+    APP_VERSION: str = "0.1.0"
+    DEBUG: bool = True
 
     # Database
-    POSTGRES_USER: str = "lumo"
-    POSTGRES_PASSWORD: str = "lumo_dev_password"
-    POSTGRES_HOST: str = "localhost"
-    POSTGRES_PORT: int = 5432
-    POSTGRES_DB: str = "lumo"
-
-    @property
-    def DATABASE_URL(self) -> str:
-        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+    DATABASE_URL: str = "postgresql://lumo:lumo_dev_password@localhost:5432/lumo"
 
     # Redis
-    REDIS_HOST: str = "localhost"
-    REDIS_PORT: int = 6379
+    REDIS_URL: str = "redis://localhost:6379/0"
 
-    @property
-    def REDIS_URL(self) -> str:
-        return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/0"
-
-    # MinIO/S3
+    # MinIO / S3
     MINIO_ENDPOINT: str = "localhost:9000"
     MINIO_ACCESS_KEY: str = "lumo"
     MINIO_SECRET_KEY: str = "lumo_dev_password"
     MINIO_BUCKET: str = "lumo-content"
-    MINIO_SECURE: bool = False
 
     # JWT
-    SECRET_KEY: str = "CHANGE_ME_IN_PRODUCTION"  # Should be loaded from env
-    ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    JWT_SECRET: str = "dev-secret-change-in-production"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
 
-    # Privacy
-    DATA_RETENTION_DAYS: int = 90
-    ENABLE_ANONYMIZATION: bool = True
-
-    # LLM (Google Gemini API)
+    # Gemini
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-1.5-pro"
     GEMINI_MAX_TOKENS: int = 8192
     GEMINI_TEMPERATURE: float = 0.7
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    # Privacy
+    DATA_RETENTION_DAYS: int = 90
+    ENABLE_ANONYMIZATION: bool = True
+
+    # CORS
+    CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:8000"]
+
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 
-settings = Settings()
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
 
+
+settings = get_settings()

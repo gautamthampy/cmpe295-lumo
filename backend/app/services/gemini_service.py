@@ -1,63 +1,47 @@
 """
-Google Gemini API integration service
-Handles all LLM interactions for quiz generation, feedback, and hints
+Google Gemini LLM service wrapper.
+Ready for Phase 2 integration into quiz, feedback, and lesson endpoints.
 """
-import google.generativeai as genai
-from typing import Optional, List, Dict, Any
-from app.core.config import settings
+from typing import Any, Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class GeminiService:
-    """Service for interacting with Google Gemini API"""
+    def __init__(self, api_key: str, model: str = "gemini-1.5-pro"):
+        self.api_key = api_key
+        self.model = model
+        self._client = None
 
-    def __init__(self):
-        """Initialize Gemini service with API key from settings"""
-        if settings.GEMINI_API_KEY:
-            genai.configure(api_key=settings.GEMINI_API_KEY)
-            self.model = genai.GenerativeModel(settings.GEMINI_MODEL)
-        else:
-            self.model = None
+        if api_key:
+            try:
+                import google.generativeai as genai
+                genai.configure(api_key=api_key)
+                self._client = genai.GenerativeModel(model)
+            except Exception as e:
+                logger.warning(f"Gemini client init failed: {e}")
 
     async def generate_quiz_questions(
         self,
         topic: str,
-        difficulty: str,
+        difficulty: str = "medium",
         num_questions: int = 5,
         context: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
+        """Generate quiz questions for a given topic using Gemini."""
+        if not self._client:
+            logger.warning("Gemini client not configured, returning empty list")
+            return []
+
+        prompt = f"""Generate {num_questions} multiple-choice quiz questions about "{topic}"
+        for elementary school students. Difficulty: {difficulty}.
+        {"Context: " + context if context else ""}
+
+        Return as JSON array with fields: question_text, correct_answer, distractors (list of 3), explanation.
         """
-        Generate quiz questions using Gemini
-
-        Args:
-            topic: The topic for quiz questions
-            difficulty: Difficulty level (easy, medium, hard)
-            num_questions: Number of questions to generate
-            context: Optional additional context or learning material
-
-        Returns:
-            List of quiz questions with distractors
-        """
-        if not self.model:
-            raise ValueError("Gemini API key not configured")
-
-        prompt = f"""Generate {num_questions} multiple-choice quiz questions about {topic} 
-        at {difficulty} difficulty level.
-        
-        {f'Context: {context}' if context else ''}
-        
-        For each question, provide:
-        1. Question text
-        2. 4 answer options (1 correct, 3 plausible distractors)
-        3. The correct answer
-        4. Brief explanation
-        
-        Return as JSON array with format:
-        [{{"question": "...", "options": ["A", "B", "C", "D"], "correct": "A", "explanation": "..."}}]
-        """
-
-        response = await self._generate_content(prompt)
-        # TODO: Parse and validate response
-        return response
+        result = await self._generate_content(prompt)
+        return []  # TODO: parse JSON from result
 
     async def generate_hint(
         self,
@@ -65,32 +49,15 @@ class GeminiService:
         student_answer: Optional[str] = None,
         hint_level: int = 1,
     ) -> str:
-        """
-        Generate a hint for a quiz question
+        """Generate a tiered hint for a quiz question."""
+        if not self._client:
+            return "Think about what you've learned in this lesson!"
 
-        Args:
-            question: The quiz question
-            student_answer: Student's current/previous answer
-            hint_level: Level of hint (1=subtle, 2=moderate, 3=direct)
-
-        Returns:
-            Hint text
-        """
-        if not self.model:
-            raise ValueError("Gemini API key not configured")
-
-        hint_intensity = ["subtle", "moderate", "direct"][hint_level - 1]
-
-        prompt = f"""Provide a {hint_intensity} hint for this question:
-        
-        Question: {question}
-        {f'Student answered: {student_answer}' if student_answer else ''}
-        
-        Give a helpful hint without revealing the answer directly.
-        """
-
-        response = await self._generate_content(prompt)
-        return response
+        levels = {1: "subtle", 2: "moderate", 3: "direct"}
+        prompt = f"""Provide a {levels[hint_level]} hint for this question: "{question}"
+        {"Student answered: " + student_answer if student_answer else ""}
+        Keep it encouraging and age-appropriate for elementary students."""
+        return await self._generate_content(prompt)
 
     async def generate_feedback(
         self,
@@ -99,38 +66,18 @@ class GeminiService:
         student_answer: str,
         is_correct: bool,
     ) -> str:
-        """
-        Generate personalized feedback for a quiz answer
+        """Generate personalized feedback for a student's quiz answer."""
+        if not self._client:
+            return "Great effort! Keep practicing!" if is_correct else "Not quite — try again!"
 
-        Args:
-            question: The quiz question
-            correct_answer: The correct answer
-            student_answer: Student's answer
-            is_correct: Whether the answer was correct
-
-        Returns:
-            Feedback message
-        """
-        if not self.model:
-            raise ValueError("Gemini API key not configured")
-
-        prompt = f"""Generate encouraging, educational feedback for a student.
-        
+        prompt = f"""A student answered a quiz question.
         Question: {question}
         Correct answer: {correct_answer}
         Student's answer: {student_answer}
-        Result: {'Correct' if is_correct else 'Incorrect'}
-        
-        Provide brief, motivational feedback that:
-        - Acknowledges their effort
-        - Explains why the answer is correct/incorrect
-        - Encourages continued learning
-        
-        Keep it concise (2-3 sentences).
-        """
+        Result: {"Correct!" if is_correct else "Incorrect."}
 
-        response = await self._generate_content(prompt)
-        return response
+        Provide brief, encouraging feedback (2-3 sentences) appropriate for elementary students."""
+        return await self._generate_content(prompt)
 
     async def _generate_content(
         self,
@@ -138,35 +85,12 @@ class GeminiService:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
     ) -> str:
-        """
-        Internal method to generate content using Gemini
-
-        Args:
-            prompt: The prompt to send to Gemini
-            temperature: Sampling temperature (default from settings)
-            max_tokens: Maximum tokens to generate (default from settings)
-
-        Returns:
-            Generated text response
-        """
-        if not self.model:
-            raise ValueError("Gemini API key not configured")
-
-        generation_config = {
-            "temperature": temperature or settings.GEMINI_TEMPERATURE,
-            "max_output_tokens": max_tokens or settings.GEMINI_MAX_TOKENS,
-        }
-
-        # Note: For async, you might need to use asyncio.to_thread for sync API
-        # This is a simplified version - adjust based on google-generativeai async support
-        response = self.model.generate_content(
-            prompt,
-            generation_config=generation_config,
-        )
-
-        return response.text
-
-
-# Global instance
-gemini_service = GeminiService()
-
+        """Low-level content generation call."""
+        if not self._client:
+            return ""
+        try:
+            response = self._client.generate_content(prompt)
+            return response.text
+        except Exception as e:
+            logger.error(f"Gemini generation failed: {e}")
+            return ""
