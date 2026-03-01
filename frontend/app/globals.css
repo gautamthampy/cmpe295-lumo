@@ -2,11 +2,124 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Respect users who prefer reduced motion (WCAG 2.1 SC 2.3.3) */
+/* ============================================================
+   LUMO Design Tokens (from UI-changes-v1)
+   ============================================================ */
+:root {
+  /* Brand palette */
+  --color-primary-light: #8e8cf5;
+  --color-primary-base:  #6b66e8;
+  --color-primary-dark:  #4b46c6;
+
+  --color-secondary-light: #94e3fb;
+  --color-secondary-base:  #5accee;
+  --color-secondary-dark:  #37b0d5;
+
+  --color-accent-light: #ffeb82;
+  --color-accent-base:  #fbd33a;
+
+  --color-bg-light: #f5f7fd;
+  --color-bg-dark:  #0f172a;
+
+  /* Semantic */
+  --background: var(--color-bg-light);
+  --foreground: #1e293b;
+
+  /* Glassmorphism */
+  --glass-bg:     rgba(255, 255, 255, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.5);
+  --glass-shadow: rgba(31, 38, 135, 0.07);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: var(--color-bg-dark);
+    --foreground: #f8fafc;
+    --glass-bg:     rgba(15, 23, 42, 0.7);
+    --glass-border: rgba(255, 255, 255, 0.1);
+    --glass-shadow: rgba(0, 0, 0, 0.3);
+  }
+}
+
+/* ============================================================
+   Base styles
+   ============================================================ */
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: 'Outfit', 'Inter', sans-serif;
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* Ambient gradient background */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(circle at 15% 50%, rgba(107, 102, 232, 0.12) 0%, transparent 50%),
+    radial-gradient(circle at 85% 30%, rgba(90, 204, 238, 0.12) 0%, transparent 50%);
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* ============================================================
+   Glassmorphism utilities (Tailwind v3 compatible)
+   ============================================================ */
+@layer components {
+  .glass {
+    background-color: var(--glass-bg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 8px 32px 0 var(--glass-shadow);
+  }
+
+  .glass-dark {
+    background-color: rgba(15, 23, 42, 0.75);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+  }
+
+  .glass-panel {
+    @apply glass rounded-3xl p-6 transition-all duration-300;
+  }
+
+  .glass-card {
+    @apply glass rounded-2xl p-4 transition-all duration-300;
+    @apply hover:-translate-y-0.5 hover:shadow-xl;
+  }
+
+  /* Gradient text */
+  .text-gradient {
+    background: linear-gradient(135deg, var(--color-primary-base) 0%, var(--color-secondary-base) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Gradient border button */
+  .btn-primary {
+    @apply px-5 py-2.5 rounded-xl font-semibold text-sm transition-all;
+    background: linear-gradient(135deg, var(--color-primary-base), var(--color-primary-dark));
+    color: white;
+  }
+  .btn-primary:hover {
+    @apply -translate-y-0.5 shadow-lg;
+    background: linear-gradient(135deg, var(--color-primary-light), var(--color-primary-base));
+  }
+}
+
+/* ============================================================
+   Accessibility utilities (WCAG 2.1)
+   ============================================================ */
+
+/* Respect prefers-reduced-motion (SC 2.3.3) */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
@@ -14,7 +127,7 @@
   }
 }
 
-/* Screen-reader-only utility (WCAG 2.1 SC 1.3.1) */
+/* Screen-reader-only (SC 1.3.1) */
 .sr-only {
   position: absolute;
   width: 1px;
@@ -38,8 +151,17 @@
   white-space: normal;
 }
 
-/* Accessible focus ring that works in high-contrast mode */
+/* Accessible focus ring (SC 2.4.7) */
 :focus-visible {
-  outline: 3px solid #16a34a;
+  outline: 3px solid var(--color-primary-base);
   outline-offset: 2px;
+}
+
+/* Float animation for decorative elements */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-8px); }
+}
+.animate-float {
+  animation: float 6s ease-in-out infinite;
 }

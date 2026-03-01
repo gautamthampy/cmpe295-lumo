@@ -9,9 +9,9 @@ import LearningPath from '@/components/lessons/LearningPath';
 type ViewMode = 'grid' | 'path';
 
 const statusColors: Record<string, string> = {
-  active: 'bg-green-100 text-green-800',
-  draft: 'bg-yellow-100 text-yellow-800',
-  archived: 'bg-gray-100 text-gray-600',
+  active: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
+  draft:  'bg-amber-100 text-amber-700 border border-amber-200',
+  archived: 'bg-slate-100 text-slate-500 border border-slate-200',
 };
 
 export default function LessonsPage() {
@@ -29,56 +29,66 @@ export default function LessonsPage() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-gray-50" aria-label="Lesson library">
+    <main className="min-h-screen" aria-label="Lesson library">
       <div className="max-w-5xl mx-auto px-4 py-10">
         {/* Header */}
         <div className="mb-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
           <div>
-            <Link href="/" className="text-green-600 hover:text-green-700 text-sm font-medium">
+            <Link href="/" className="text-sm font-medium text-slate-400 hover:text-slate-600 transition-colors">
               ← Back to Home
             </Link>
-            <h1 className="text-3xl font-bold text-gray-900 mt-3">Lesson Library</h1>
-            <p className="text-gray-500 mt-1">
-              Grade 3 Mathematics micro-lessons with misconception-aware quiz generation
+            <h1 className="text-3xl font-bold mt-3">
+              <span className="text-gradient">Lesson Library</span>
+            </h1>
+            <p className="text-slate-500 mt-1 text-sm">
+              Grade 3 Mathematics · misconception-aware · WCAG 2.1 AA
             </p>
           </div>
 
           {/* View toggle + editor link */}
           {lessons.length > 0 && (
             <div className="flex items-center gap-3 flex-shrink-0">
-              <div
-                role="group"
-                aria-label="View mode"
-                className="flex rounded-lg border border-gray-200 overflow-hidden"
-              >
+              <div role="group" aria-label="View mode" className="flex glass rounded-xl overflow-hidden">
                 <button
                   onClick={() => setViewMode('grid')}
                   aria-pressed={viewMode === 'grid'}
-                  className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                  className={`px-3 py-1.5 text-sm font-medium transition-all ${
                     viewMode === 'grid'
-                      ? 'bg-green-600 text-white'
-                      : 'bg-white text-gray-600 hover:bg-gray-50'
+                      ? 'text-white'
+                      : 'text-slate-500 hover:text-slate-700'
                   }`}
+                  style={viewMode === 'grid' ? {
+                    background: 'linear-gradient(135deg, var(--color-primary-base), var(--color-primary-dark))',
+                  } : {}}
                 >
                   Grid
                 </button>
                 <button
                   onClick={() => setViewMode('path')}
                   aria-pressed={viewMode === 'path'}
-                  className={`px-3 py-1.5 text-sm font-medium transition-colors border-l border-gray-200 ${
+                  className={`px-3 py-1.5 text-sm font-medium transition-all border-l border-white/30 ${
                     viewMode === 'path'
-                      ? 'bg-green-600 text-white'
-                      : 'bg-white text-gray-600 hover:bg-gray-50'
+                      ? 'text-white'
+                      : 'text-slate-500 hover:text-slate-700'
                   }`}
+                  style={viewMode === 'path' ? {
+                    background: 'linear-gradient(135deg, var(--color-primary-base), var(--color-primary-dark))',
+                  } : {}}
                 >
                   Learning Path
                 </button>
               </div>
               <Link
-                href="/lessons/editor"
-                className="px-3 py-1.5 text-sm font-medium bg-white border border-gray-200 rounded-lg text-gray-600 hover:border-green-400 hover:text-green-700 transition-colors"
+                href="/lessons/analytics"
+                className="px-3 py-1.5 text-sm font-semibold glass rounded-xl text-slate-600 hover:shadow-md transition-all"
               >
-                + Create with AI
+                📊 Analytics
+              </Link>
+              <Link
+                href="/lessons/editor"
+                className="px-3 py-1.5 text-sm font-semibold glass rounded-xl text-slate-600 hover:shadow-md transition-all"
+              >
+                ✨ Create with AI
               </Link>
             </div>
           )}
@@ -86,26 +96,25 @@ export default function LessonsPage() {
 
         {/* States */}
         {loading && (
-          <p className="text-gray-500 text-center py-20" role="status" aria-live="polite">
+          <p className="text-slate-400 text-center py-20" role="status" aria-live="polite">
             Loading lessons…
           </p>
         )}
 
         {error && (
-          <div role="alert" className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
-            <p className="text-red-700 font-medium">{error}</p>
-            <p className="text-red-500 text-sm mt-1">
-              Run: <code className="bg-red-100 px-1 rounded">docker-compose up -d</code> then start
-              the backend
+          <div role="alert" className="glass rounded-2xl p-6 text-center border border-red-200/50">
+            <p className="text-red-600 font-medium">{error}</p>
+            <p className="text-red-400 text-sm mt-1">
+              Run: <code className="bg-red-50 px-1.5 py-0.5 rounded text-red-600">docker-compose up -d</code> then start the backend
             </p>
           </div>
         )}
 
         {!loading && !error && lessons.length === 0 && (
-          <div className="text-center py-20 text-gray-500">
+          <div className="text-center py-20 text-slate-400">
             <p className="text-lg">No lessons found.</p>
             <p className="text-sm mt-1">
-              Run: <code className="bg-gray-100 px-1 rounded">python -m app.seed.seed_db</code>
+              Run: <code className="bg-slate-100 px-1.5 rounded">python -m app.seed.seed_db</code>
             </p>
           </div>
         )}
@@ -119,45 +128,37 @@ export default function LessonsPage() {
 
         {/* Grid view */}
         {lessons.length > 0 && viewMode === 'grid' && (
-          <ul className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" role="list">
+          <ul className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5" role="list">
             {lessons.map((lesson) => (
               <li key={lesson.lesson_id} role="listitem">
                 <Link
                   href={`/lessons/${lesson.lesson_id}`}
-                  className="block bg-white rounded-xl border border-gray-200 p-6 hover:shadow-md hover:border-green-300 transition-all focus-visible:ring-2 focus-visible:ring-green-500"
+                  className="block glass-card h-full"
                   aria-label={`${lesson.title}, Grade ${lesson.grade_level} ${lesson.subject}`}
                 >
                   {/* Subject + Grade */}
                   <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-semibold text-green-700 uppercase tracking-wide">
-                      {lesson.subject} · Grade {lesson.grade_level}
+                    <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--color-primary-base)' }}>
+                      {lesson.subject} · Gr. {lesson.grade_level}
                     </span>
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                        statusColors[lesson.status] ?? statusColors.draft
-                      }`}
-                    >
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColors[lesson.status] ?? statusColors.draft}`}>
                       {lesson.status}
                     </span>
                   </div>
 
-                  {/* Title */}
-                  <h2 className="text-lg font-bold text-gray-900 mb-3">{lesson.title}</h2>
+                  <h2 className="text-base font-bold text-slate-800 mb-3 leading-snug">{lesson.title}</h2>
 
-                  {/* Prerequisites indicator */}
                   {lesson.prerequisites.length > 0 && (
-                    <p className="text-xs text-amber-600 mb-2">
-                      Has prerequisite lessons
-                    </p>
+                    <p className="text-xs text-amber-500 mb-2 font-medium">↑ Has prerequisites</p>
                   )}
 
-                  {/* Misconception tags */}
                   {lesson.misconception_tags.length > 0 && (
                     <div className="flex flex-wrap gap-1.5">
                       {lesson.misconception_tags.map((tag) => (
                         <span
                           key={tag}
-                          className="text-xs px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full border border-purple-100"
+                          className="text-xs px-2 py-0.5 rounded-full font-medium"
+                          style={{ background: 'rgba(107,102,232,0.08)', color: 'var(--color-primary-dark)' }}
                         >
                           {tag}
                         </span>

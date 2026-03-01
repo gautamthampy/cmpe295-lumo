@@ -40,9 +40,12 @@ export const lessonsAPI = {
     }),
   create: (data: unknown) => api.post('/lessons', data),
   generate: (data: unknown) => api.post('/lessons/generate', data),
+  preview: (data: { content_mdx: string; grade_level: number }) =>
+    api.post('/lessons/preview', data),
   publish: (id: string) => api.post(`/lessons/${id}/publish`),
   revise: (id: string, data: unknown) => api.post(`/lessons/${id}/revise`, data),
   accessibilityReport: () => api.get('/lessons/accessibility-report'),
+  analyticsSummary: () => api.get('/lessons/analytics/summary'),
 };
 
 export const quizzesAPI = {

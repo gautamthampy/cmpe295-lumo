@@ -142,8 +142,8 @@ export default function LessonDetailPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-gray-500 text-lg" role="status" aria-live="polite">
+      <main className="min-h-screen flex items-center justify-center" aria-label="Loading lesson">
+        <p className="text-slate-400 text-lg" role="status" aria-live="polite">
           Loading lesson…
         </p>
       </main>
@@ -152,10 +152,10 @@ export default function LessonDetailPage() {
 
   if (error || !rendered) {
     return (
-      <main className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center" role="alert">
-          <p className="text-red-600 text-lg mb-4">{error ?? 'Lesson not found'}</p>
-          <Link href="/lessons" className="text-green-600 hover:underline">
+      <main className="min-h-screen flex items-center justify-center" aria-label="Lesson error">
+        <div className="glass rounded-2xl p-8 text-center max-w-sm" role="alert">
+          <p className="text-red-600 font-medium mb-4">{error ?? 'Lesson not found'}</p>
+          <Link href="/lessons" className="text-sm font-medium" style={{ color: 'var(--color-primary-base)' }}>
             ← Back to Lessons
           </Link>
         </div>
@@ -166,8 +166,11 @@ export default function LessonDetailPage() {
   return (
     <div>
       {/* Back link */}
-      <div className="max-w-5xl mx-auto px-4 pt-4">
-        <Link href="/lessons" className="text-green-600 hover:text-green-700 text-sm font-medium">
+      <div className="max-w-5xl mx-auto px-4 pt-6">
+        <Link
+          href="/lessons"
+          className="text-sm font-medium text-slate-400 hover:text-slate-600 transition-colors"
+        >
           ← Back to Lessons
         </Link>
       </div>
@@ -186,12 +189,12 @@ export default function LessonDetailPage() {
 
       {/* Quiz section */}
       <div className="max-w-5xl mx-auto px-4 py-6">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="glass rounded-2xl p-6">
 
           {/* Accessibility score details */}
           {rendered.accessibility_issues.length > 0 && (
             <details className="mb-6">
-              <summary className="cursor-pointer text-sm font-medium text-gray-600 hover:text-gray-800">
+              <summary className="cursor-pointer text-sm font-medium text-slate-500 hover:text-slate-700">
                 Accessibility score: {Math.round(rendered.accessibility_score * 100)}% —{' '}
                 {rendered.accessibility_issues.length} issue(s) found
               </summary>
@@ -202,7 +205,7 @@ export default function LessonDetailPage() {
                     className={`text-xs px-3 py-2 rounded-lg ${
                       issue.severity === 'error'
                         ? 'bg-red-50 text-red-700'
-                        : 'bg-yellow-50 text-yellow-700'
+                        : 'bg-amber-50 text-amber-700'
                     }`}
                   >
                     <strong>[{issue.severity}]</strong> {issue.rule}: {issue.message}
@@ -214,14 +217,15 @@ export default function LessonDetailPage() {
 
           {/* Misconception tags */}
           <div className="mb-6">
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">
               Content Tags → Quiz Agent
             </h3>
             <div className="flex flex-wrap gap-2">
               {rendered.misconception_tags.map((tag) => (
                 <span
                   key={tag}
-                  className="px-3 py-1.5 bg-purple-100 text-purple-800 rounded-full text-sm font-medium border border-purple-200"
+                  className="px-3 py-1.5 rounded-full text-sm font-medium"
+                  style={{ background: 'rgba(107,102,232,0.1)', color: 'var(--color-primary-dark)' }}
                 >
                   {tag}
                 </span>
@@ -234,7 +238,7 @@ export default function LessonDetailPage() {
             <button
               onClick={handleStartQuiz}
               disabled={quizLoading}
-              className="w-full py-3 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white rounded-lg font-semibold transition-colors"
+              className="btn-primary w-full py-3 rounded-xl"
               aria-label="Generate quiz for this lesson"
             >
               {quizLoading ? 'Generating Quiz…' : 'Start Quiz (Mock)'}
@@ -243,14 +247,14 @@ export default function LessonDetailPage() {
 
           {/* Quiz questions */}
           {quizResult && (
-            <div className="mt-2 border-t pt-6" aria-live="polite">
-              <h3 className="text-lg font-semibold mb-5">
+            <div className="mt-2 border-t border-white/30 pt-6" aria-live="polite">
+              <h3 className="text-lg font-semibold text-slate-800 mb-5">
                 Quiz — {quizResult.questions.length} Questions
               </h3>
               <ol className="space-y-6">
                 {quizResult.questions.map((q, i) => (
-                  <li key={q.question_id} className="bg-gray-50 rounded-xl p-5 border">
-                    <p className="font-semibold mb-4">
+                  <li key={q.question_id} className="glass rounded-xl p-5">
+                    <p className="font-semibold text-slate-800 mb-4">
                       {i + 1}. {q.question_text}
                     </p>
                     <fieldset>
@@ -265,13 +269,13 @@ export default function LessonDetailPage() {
                               className={`flex items-start gap-3 px-4 py-3 rounded-lg border cursor-pointer transition-colors ${
                                 quizSubmitted
                                   ? isCorrect
-                                    ? 'bg-green-50 border-green-300 text-green-800 font-medium'
+                                    ? 'bg-emerald-50 border-emerald-300 text-emerald-800 font-medium'
                                     : selected
-                                    ? 'bg-red-50 border-red-200 text-red-800'
-                                    : 'bg-white border-gray-200 text-gray-400'
+                                    ? 'bg-red-50 border-red-200 text-red-700'
+                                    : 'bg-white/50 border-white/30 text-slate-400'
                                   : selected
-                                  ? 'bg-green-50 border-green-300'
-                                  : 'bg-white border-gray-200 hover:bg-gray-50'
+                                  ? 'bg-white border-white/50 shadow-sm'
+                                  : 'bg-white/50 border-white/30 hover:bg-white/70'
                               }`}
                             >
                               <input
@@ -286,7 +290,7 @@ export default function LessonDetailPage() {
                                     [q.question_id]: opt.option_id,
                                   }))
                                 }
-                                className="mt-0.5 accent-green-600"
+                                className="mt-0.5"
                               />
                               <span className="text-sm flex-1">
                                 <span className="font-mono mr-1">
@@ -313,13 +317,13 @@ export default function LessonDetailPage() {
                 <button
                   onClick={handleSubmitQuiz}
                   disabled={Object.keys(selectedAnswers).length < quizResult.questions.length}
-                  className="mt-6 w-full py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-lg font-semibold transition-colors"
+                  className="btn-primary mt-6 w-full py-3 rounded-xl disabled:opacity-40"
                 >
                   Submit Quiz
                 </button>
               ) : (
-                <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg text-center" aria-live="assertive">
-                  <p className="text-green-800 font-semibold text-lg">
+                <div className="mt-6 p-5 glass rounded-xl text-center" aria-live="assertive">
+                  <p className="font-semibold text-lg text-slate-800">
                     {quizResult.questions.filter((q) => {
                       const opt = q.options.find((o) => o.option_id === selectedAnswers[q.question_id]);
                       return opt && !opt.is_distractor;
@@ -329,13 +333,13 @@ export default function LessonDetailPage() {
                   {lessonDone && rendered.next_lesson_id && (
                     <Link
                       href={`/lessons/${rendered.next_lesson_id}`}
-                      className="mt-3 inline-block px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors"
+                      className="btn-primary mt-3 inline-block px-6 py-2 rounded-xl"
                     >
                       Next Lesson →
                     </Link>
                   )}
                   {lessonDone && !rendered.next_lesson_id && (
-                    <p className="mt-2 text-sm text-green-700">
+                    <p className="mt-2 text-sm text-emerald-700 font-medium">
                       You have completed all lessons in this path!
                     </p>
                   )}

@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from typing import Optional
 from uuid import UUID
 
+from pydantic import BaseModel
+
 from app.core.database import get_db
 from app.models.lesson import Lesson
 from app.schemas.lesson import (
@@ -21,6 +23,94 @@ from app.services.mdx_renderer import get_renderer
 from app.services.accessibility_checker import get_checker
 
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# Preview — render arbitrary MDX without saving to the database
+# ---------------------------------------------------------------------------
+
+class PreviewRequest(BaseModel):
+    content_mdx: str
+    grade_level: int = 3
+
+
+class PreviewResponse(BaseModel):
+    html: str
+    accessibility_score: float
+    issues: list[dict]
+
+
+@router.post("/preview", response_model=PreviewResponse)
+async def preview_lesson(payload: PreviewRequest):
+    """
+    Render arbitrary MDX content to HTML and run the accessibility checker.
+    Nothing is persisted — this is used by the MdxEditor live-preview panel.
+    """
+    renderer = get_renderer()
+    html = renderer.render(payload.content_mdx)
+    checker = get_checker()
+    result = checker.check(html, grade_level=payload.grade_level)
+    return PreviewResponse(
+        html=html,
+        accessibility_score=result.score,
+        issues=[
+            {"rule": i.rule, "severity": i.severity, "message": i.message}
+            for i in result.issues
+        ],
+    )
+
+
+import random
+
+# ---------------------------------------------------------------------------
+# Analytics summary — per-lesson metrics for the demo dashboard
+# ---------------------------------------------------------------------------
+
+@router.get("/analytics/summary")
+async def get_analytics_summary(db: Session = Depends(get_db)):
+    """
+    Return per-lesson analytics metrics for the dashboard.
+    Real event data would come from the analytics pipeline (Nivedita's agent);
+    demo values are deterministically seeded from lesson metadata so they
+    remain stable across page loads.
+    """
+    lessons = db.query(Lesson).filter(Lesson.status == "active").all()
+    renderer = get_renderer()
+    checker = get_checker()
+
+    summary = []
+    for lesson in lessons:
+        html = renderer.render(lesson.content_mdx)
+        result = checker.check(html, grade_level=lesson.grade_level)
+
+        # Seed random from lesson UUID so metrics are stable across requests
+        rng = random.Random(str(lesson.lesson_id))
+        completion_rate = round(rng.uniform(0.60, 0.97), 2)
+        avg_time_minutes = rng.randint(4, 18)
+        quiz_pass_rate = round(rng.uniform(0.55, 0.95), 2)
+        total_views = rng.randint(20, 200)
+
+        summary.append({
+            "lesson_id": str(lesson.lesson_id),
+            "title": lesson.title,
+            "subject": lesson.subject,
+            "grade_level": lesson.grade_level,
+            "accessibility_score": round(result.score, 2),
+            "issues_count": len(result.issues),
+            "completion_rate": completion_rate,
+            "avg_time_minutes": avg_time_minutes,
+            "quiz_pass_rate": quiz_pass_rate,
+            "total_views": total_views,
+            "misconception_tags": lesson.misconception_tags or [],
+        })
+
+    return {
+        "total_lessons": len(summary),
+        "avg_accessibility_score": round(
+            sum(r["accessibility_score"] for r in summary) / len(summary), 2
+        ) if summary else 0.0,
+        "lessons": summary,
+    }
 
 
 @router.get("/accessibility-report")

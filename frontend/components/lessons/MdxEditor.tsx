@@ -57,30 +57,22 @@ export default function MdxEditor({
       return;
     }
 
-    // Debounce: clear previous timer
     if (timerRef.current) clearTimeout(timerRef.current);
     setPreview((p) => ({ ...p, loading: true, error: null }));
 
     timerRef.current = setTimeout(async () => {
       try {
-        // Use the generate endpoint with save_as_draft=false to get a preview
-        const res = await lessonsAPI.generate({
-          topic: '__preview__',
-          grade_level: gradeLevel,
-          subject: 'Mathematics',
-          save_as_draft: false,
-          // The endpoint generates from a topic, so we inject content directly via a trick:
-          // We send the mdx as the topic and rely on the stub fallback.
-          // For a real integration, the backend would accept raw MDX for preview.
-          // Here we use the render endpoint indirectly via a temporary lesson if one exists,
-          // or we show client-side rendering as fallback.
+        const res = await lessonsAPI.preview({ content_mdx: value, grade_level: gradeLevel });
+        const data = res.data as { html: string; accessibility_score: number; issues: AccessibilityIssue[] };
+        setPreview({
+          html: data.html,
+          score: data.accessibility_score,
+          issues: data.issues,
+          loading: false,
+          error: null,
         });
-        // This won't work well for arbitrary MDX — use a simpler approach:
-        // Call a dedicated preview via the generate endpoint isn't ideal.
-        // Instead just show the raw MDX in the preview panel without a score.
-        setPreview({ html: '', score: 0, issues: [], loading: false, error: null });
       } catch {
-        setPreview((p) => ({ ...p, loading: false }));
+        setPreview((p) => ({ ...p, loading: false, error: 'Preview unavailable' }));
       }
     }, debounceMs);
 
@@ -97,7 +89,7 @@ export default function MdxEditor({
         <div className="flex flex-col">
           <label
             htmlFor="mdx-editor-textarea"
-            className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2"
+            className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2"
           >
             MDX Source
           </label>
@@ -105,24 +97,24 @@ export default function MdxEditor({
             id="mdx-editor-textarea"
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            className="flex-1 w-full min-h-[360px] font-mono text-sm bg-gray-900 text-gray-100 rounded-lg p-4 resize-y border border-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+            className="flex-1 w-full min-h-[360px] font-mono text-sm bg-slate-900 text-slate-100 rounded-xl p-4 resize-y border border-slate-700 focus:outline-none focus:ring-2"
+            style={{ '--tw-ring-color': 'var(--color-primary-base)' } as React.CSSProperties}
             placeholder={`## What Is Your Topic?\n\nStart writing your lesson here...\n\n## Key Takeaway\n\nSummarise the main idea.`}
             spellCheck={false}
             aria-describedby="mdx-editor-hint"
           />
-          <p id="mdx-editor-hint" className="text-xs text-gray-400 mt-1">
+          <p id="mdx-editor-hint" className="text-xs text-slate-400 mt-1">
             Use ## for sections. Scaffold blocks: wrap content with{' '}
-            <code className="bg-gray-100 px-1 rounded text-gray-600">{`<!-- scaffold --> ... <!-- /scaffold -->`}</code>
+            <code className="bg-slate-100 px-1 rounded text-slate-600">{`<!-- scaffold --> ... <!-- /scaffold -->`}</code>
           </p>
         </div>
 
         {/* HTML Preview */}
         <div className="flex flex-col">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-widest">
               Preview
             </span>
-            {/* Accessibility score badge */}
             {preview.score > 0 && (
               <span
                 className={`text-xs font-bold ${SCORE_COLOR(preview.score)}`}
@@ -132,23 +124,26 @@ export default function MdxEditor({
               </span>
             )}
             {preview.loading && (
-              <span className="text-xs text-gray-400" role="status" aria-live="polite">
+              <span className="text-xs text-slate-400" role="status" aria-live="polite">
                 Checking…
               </span>
             )}
           </div>
 
           <div
-            className="flex-1 min-h-[360px] bg-white border border-gray-200 rounded-lg p-4 overflow-y-auto prose prose-sm max-w-none"
+            className="flex-1 min-h-[360px] bg-white/70 border border-white/50 rounded-xl p-4 overflow-y-auto prose prose-sm max-w-none"
             aria-label="Lesson HTML preview"
           >
-            {value.trim() ? (
-              /* Simple client-side markdown preview — no server round-trip */
-              <div className="whitespace-pre-wrap font-mono text-xs text-gray-600 leading-relaxed">
-                {value}
-              </div>
+            {preview.html ? (
+              <div dangerouslySetInnerHTML={{ __html: preview.html }} />
+            ) : preview.loading ? (
+              <p className="text-slate-400 text-sm italic">Rendering…</p>
+            ) : preview.error ? (
+              <p className="text-red-400 text-sm italic">{preview.error}</p>
+            ) : value.trim() ? (
+              <p className="text-slate-400 text-sm italic">Preview will appear after a moment…</p>
             ) : (
-              <p className="text-gray-400 text-sm italic">
+              <p className="text-slate-400 text-sm italic">
                 Your lesson preview will appear here as you type…
               </p>
             )}
