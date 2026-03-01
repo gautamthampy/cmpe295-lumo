@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import LessonViewer, { type LessonSection } from '@/components/lessons/LessonViewer';
@@ -10,6 +10,7 @@ import type { RenderedLessonResponse, QuizResponse, AccessibilityIssue } from '@
 // No auth in PoC — hardcoded demo user
 const DEMO_USER_ID = '00000000-0000-0000-0000-000000000001';
 const DEMO_SESSION_ID = '00000000-0000-0000-0000-000000000002';
+const QUIZ_PASS_THRESHOLD = 0.7; // 70% correct to pass
 
 /**
  * Parse backend-rendered HTML into sections by splitting on <h2> tags.
@@ -50,6 +51,7 @@ function parseSections(html: string): LessonSection[] {
 export default function LessonDetailPage() {
   const params = useParams();
   const lessonId = params.lessonId as string;
+  const startTimeRef = useRef<number>(Date.now());
 
   const [rendered, setRendered] = useState<RenderedLessonResponse | null>(null);
   const [sections, setSections] = useState<LessonSection[]>([]);
@@ -59,8 +61,11 @@ export default function LessonDetailPage() {
   const [quizResult, setQuizResult] = useState<QuizResponse | null>(null);
   const [quizLoading, setQuizLoading] = useState(false);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, string>>({});
+  const [quizSubmitted, setQuizSubmitted] = useState(false);
+  const [lessonDone, setLessonDone] = useState(false);
 
   useEffect(() => {
+    startTimeRef.current = Date.now();
     lessonsAPI
       .render(lessonId, DEMO_USER_ID)
       .then((res) => {
@@ -84,6 +89,7 @@ export default function LessonDetailPage() {
     setQuizLoading(true);
     setSelectedAnswers({});
     setQuizResult(null);
+    setQuizSubmitted(false);
     try {
       const res = await mockAPI.generateQuiz({
         lesson_id: lessonId,
@@ -98,13 +104,38 @@ export default function LessonDetailPage() {
     }
   };
 
-  const handleLessonComplete = () => {
+  const handleSubmitQuiz = () => {
+    if (!quizResult) return;
+    setQuizSubmitted(true);
+
+    const correctCount = quizResult.questions.filter((q) => {
+      const chosen = selectedAnswers[q.question_id];
+      const opt = q.options.find((o) => o.option_id === chosen);
+      return opt && !opt.is_distractor;
+    }).length;
+
+    const quizScore = quizResult.questions.length > 0
+      ? correctCount / quizResult.questions.length
+      : 0;
+
     mockAPI.ingestEvent({
       event_type: 'lesson_completed',
       user_id: DEMO_USER_ID,
       session_id: DEMO_SESSION_ID,
-      event_data: { lesson_id: lessonId, sections_completed: sections.length },
+      event_data: {
+        lesson_id: lessonId,
+        sections_completed: sections.length,
+        quiz_score: quizScore,
+        quiz_passed: quizScore >= QUIZ_PASS_THRESHOLD,
+        time_spent_seconds: Math.round((Date.now() - startTimeRef.current) / 1000),
+      },
     }).catch(() => {});
+
+    setLessonDone(true);
+  };
+
+  const handleLessonComplete = () => {
+    // Called by LessonViewer when the student navigates through all sections
   };
 
   // --- Loading / error states ---
@@ -199,18 +230,20 @@ export default function LessonDetailPage() {
           </div>
 
           {/* Quiz trigger */}
-          <button
-            onClick={handleStartQuiz}
-            disabled={quizLoading}
-            className="w-full py-3 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white rounded-lg font-semibold transition-colors"
-            aria-label="Generate quiz for this lesson"
-          >
-            {quizLoading ? 'Generating Quiz…' : 'Start Quiz (Mock)'}
-          </button>
+          {!quizResult && (
+            <button
+              onClick={handleStartQuiz}
+              disabled={quizLoading}
+              className="w-full py-3 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white rounded-lg font-semibold transition-colors"
+              aria-label="Generate quiz for this lesson"
+            >
+              {quizLoading ? 'Generating Quiz…' : 'Start Quiz (Mock)'}
+            </button>
+          )}
 
           {/* Quiz questions */}
           {quizResult && (
-            <div className="mt-6 border-t pt-6" aria-live="polite">
+            <div className="mt-2 border-t pt-6" aria-live="polite">
               <h3 className="text-lg font-semibold mb-5">
                 Quiz — {quizResult.questions.length} Questions
               </h3>
@@ -225,15 +258,17 @@ export default function LessonDetailPage() {
                       <div className="space-y-2">
                         {q.options.map((opt) => {
                           const selected = selectedAnswers[q.question_id] === opt.option_id;
-                          const revealed = !!selectedAnswers[q.question_id];
+                          const isCorrect = !opt.is_distractor;
                           return (
                             <label
                               key={opt.option_id}
                               className={`flex items-start gap-3 px-4 py-3 rounded-lg border cursor-pointer transition-colors ${
-                                revealed
-                                  ? opt.is_distractor
+                                quizSubmitted
+                                  ? isCorrect
+                                    ? 'bg-green-50 border-green-300 text-green-800 font-medium'
+                                    : selected
                                     ? 'bg-red-50 border-red-200 text-red-800'
-                                    : 'bg-green-50 border-green-300 text-green-800 font-medium'
+                                    : 'bg-white border-gray-200 text-gray-400'
                                   : selected
                                   ? 'bg-green-50 border-green-300'
                                   : 'bg-white border-gray-200 hover:bg-gray-50'
@@ -244,6 +279,7 @@ export default function LessonDetailPage() {
                                 name={`q-${q.question_id}`}
                                 value={opt.option_id}
                                 checked={selected}
+                                disabled={quizSubmitted}
                                 onChange={() =>
                                   setSelectedAnswers((prev) => ({
                                     ...prev,
@@ -251,22 +287,14 @@ export default function LessonDetailPage() {
                                   }))
                                 }
                                 className="mt-0.5 accent-green-600"
-                                aria-describedby={
-                                  revealed && opt.misconception_type
-                                    ? `misconception-${opt.option_id}`
-                                    : undefined
-                                }
                               />
                               <span className="text-sm flex-1">
                                 <span className="font-mono mr-1">
                                   {opt.option_id.toUpperCase()}.
                                 </span>
                                 {opt.option_text}
-                                {revealed && opt.misconception_type && (
-                                  <span
-                                    id={`misconception-${opt.option_id}`}
-                                    className="block text-xs text-red-500 mt-0.5"
-                                  >
+                                {quizSubmitted && opt.is_distractor && opt.misconception_type && (
+                                  <span className="block text-xs text-red-500 mt-0.5">
                                     Misconception: {opt.misconception_type}
                                   </span>
                                 )}
@@ -279,6 +307,40 @@ export default function LessonDetailPage() {
                   </li>
                 ))}
               </ol>
+
+              {/* Submit / results */}
+              {!quizSubmitted ? (
+                <button
+                  onClick={handleSubmitQuiz}
+                  disabled={Object.keys(selectedAnswers).length < quizResult.questions.length}
+                  className="mt-6 w-full py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-lg font-semibold transition-colors"
+                >
+                  Submit Quiz
+                </button>
+              ) : (
+                <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg text-center" aria-live="assertive">
+                  <p className="text-green-800 font-semibold text-lg">
+                    {quizResult.questions.filter((q) => {
+                      const opt = q.options.find((o) => o.option_id === selectedAnswers[q.question_id]);
+                      return opt && !opt.is_distractor;
+                    }).length}{' '}
+                    / {quizResult.questions.length} correct
+                  </p>
+                  {lessonDone && rendered.next_lesson_id && (
+                    <Link
+                      href={`/lessons/${rendered.next_lesson_id}`}
+                      className="mt-3 inline-block px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors"
+                    >
+                      Next Lesson →
+                    </Link>
+                  )}
+                  {lessonDone && !rendered.next_lesson_id && (
+                    <p className="mt-2 text-sm text-green-700">
+                      You have completed all lessons in this path!
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -1,8 +1,9 @@
 """
-Lesson endpoints — Gautam's component (Phase 2)
-Handles lesson CRUD, MDX rendering, and accessibility scoring.
+Lesson endpoints — Gautam's component (Phase 2+3)
+Handles lesson CRUD, MDX rendering, accessibility scoring, and sequencing.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import any_
 from sqlalchemy.orm import Session
 from typing import Optional
 from uuid import UUID
@@ -20,6 +21,42 @@ from app.services.mdx_renderer import get_renderer
 from app.services.accessibility_checker import get_checker
 
 router = APIRouter()
+
+
+@router.get("/accessibility-report")
+async def get_accessibility_report(db: Session = Depends(get_db)):
+    """
+    Run the WCAG 2.1 AA checker on all published lessons and return a summary.
+    Lessons scoring below 0.8 are flagged for review.
+    """
+    lessons = db.query(Lesson).filter(Lesson.status == "active").all()
+    checker = get_checker()
+    renderer = get_renderer()
+
+    report = []
+    for lesson in lessons:
+        html = renderer.render(lesson.content_mdx)
+        result = checker.check(html, grade_level=lesson.grade_level)
+        report.append({
+            "lesson_id": str(lesson.lesson_id),
+            "title": lesson.title,
+            "accessibility_score": result.score,
+            "passed_rules": result.passed_rules,
+            "total_rules": result.total_rules,
+            "needs_review": result.score < 0.8,
+            "issues": [
+                {"rule": i.rule, "severity": i.severity, "message": i.message}
+                for i in result.issues
+            ],
+        })
+
+    avg_score = sum(r["accessibility_score"] for r in report) / len(report) if report else 0.0
+    return {
+        "total_lessons": len(report),
+        "average_score": round(avg_score, 2),
+        "lessons_needing_review": sum(1 for r in report if r["needs_review"]),
+        "lessons": report,
+    }
 
 
 @router.get("/", response_model=list[LessonResponse])
@@ -55,6 +92,7 @@ async def create_lesson(payload: LessonCreate, db: Session = Depends(get_db)):
         grade_level=payload.grade_level,
         content_mdx=payload.content_mdx,
         misconception_tags=payload.misconception_tags,
+        prerequisites=payload.prerequisites,
         status="draft",
     )
     db.add(lesson)
@@ -63,25 +101,98 @@ async def create_lesson(payload: LessonCreate, db: Session = Depends(get_db)):
     return lesson
 
 
+@router.post("/{lesson_id}/publish", response_model=LessonResponse)
+async def publish_lesson(lesson_id: UUID, db: Session = Depends(get_db)):
+    """
+    Publish a lesson. Requires accessibility_score >= 0.8.
+    Returns 400 if the lesson does not meet the quality bar.
+    """
+    lesson = db.query(Lesson).filter(Lesson.lesson_id == lesson_id).first()
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+    if lesson.status == "active":
+        raise HTTPException(status_code=400, detail="Lesson is already published.")
+
+    renderer = get_renderer()
+    html = renderer.render(lesson.content_mdx)
+    checker = get_checker()
+    result = checker.check(html, grade_level=lesson.grade_level)
+
+    if result.score < 0.8:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Lesson accessibility score {result.score:.2f} is below the 0.80 threshold. "
+                f"Fix {len(result.issues)} issue(s) before publishing."
+            ),
+        )
+
+    lesson.status = "active"
+    db.commit()
+    db.refresh(lesson)
+    return lesson
+
+
+@router.post("/{lesson_id}/revise", response_model=LessonResponse, status_code=201)
+async def revise_lesson(
+    lesson_id: UUID,
+    payload: LessonCreate,
+    db: Session = Depends(get_db),
+):
+    """
+    Create a new version of an existing lesson.
+    The original lesson is preserved; the new revision references it via parent_version_id.
+    """
+    original = db.query(Lesson).filter(Lesson.lesson_id == lesson_id).first()
+    if not original:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    revision = Lesson(
+        title=payload.title,
+        subject=payload.subject,
+        grade_level=payload.grade_level,
+        content_mdx=payload.content_mdx,
+        misconception_tags=payload.misconception_tags,
+        prerequisites=payload.prerequisites,
+        status="draft",
+        version=original.version + 1,
+        parent_version_id=original.lesson_id,
+    )
+    db.add(revision)
+    db.commit()
+    db.refresh(revision)
+    return revision
+
+
 @router.get("/{lesson_id}/render", response_model=RenderedLessonResponse)
 async def render_lesson(
     lesson_id: UUID,
     user_id: UUID = Query(...),
+    mastery_score: Optional[float] = Query(None, ge=0.0, le=1.0),
     db: Session = Depends(get_db),
 ):
     """
     Render lesson content for display.
 
-    Converts MDX to semantic HTML, computes a WCAG 2.1 AA accessibility
-    score, and bundles quiz context for the Quiz Agent.
+    Converts MDX to semantic HTML (adaptive by mastery_score if provided),
+    computes a WCAG 2.1 AA accessibility score, and bundles quiz context
+    and learning-path metadata for the Quiz Agent and frontend.
+
+    Args:
+        mastery_score: Optional 0.0-1.0 score from the Analytics Agent.
+                       < 0.5 → scaffold mode (extra examples shown)
+                       > 0.8 → advanced mode (review sections hidden)
     """
     lesson = db.query(Lesson).filter(Lesson.lesson_id == lesson_id).first()
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
 
-    # Convert MDX → HTML
+    # Convert MDX → HTML (adaptive if mastery_score supplied)
     renderer = get_renderer()
-    html_content = renderer.render(lesson.content_mdx)
+    if mastery_score is not None:
+        html_content = renderer.render_adaptive(lesson.content_mdx, mastery_score)
+    else:
+        html_content = renderer.render(lesson.content_mdx)
 
     # Compute accessibility score (WCAG 2.1 AA rule-based)
     checker = get_checker()
@@ -90,6 +201,17 @@ async def render_lesson(
     # Estimated reading time (words / 150 wpm, minimum 1 minute)
     word_count = len(lesson.content_mdx.split())
     estimated_minutes = max(1, round(word_count / 150))
+
+    # Learning path: find the next lesson (first lesson that lists this one as a prerequisite)
+    next_lesson = (
+        db.query(Lesson)
+        .filter(Lesson.prerequisites.contains([lesson.lesson_id]))
+        .first()
+    )
+    next_lesson_id = next_lesson.lesson_id if next_lesson else None
+
+    # Prerequisites met: placeholder True until Nivedita's mastery endpoint is wired
+    prerequisites_met = True
 
     quiz_context = QuizContext(
         lesson_id=lesson.lesson_id,
@@ -110,5 +232,8 @@ async def render_lesson(
         accessibility_score=result.score,
         accessibility_issues=issues,
         misconception_tags=lesson.misconception_tags or [],
+        prerequisites=lesson.prerequisites or [],
+        prerequisites_met=prerequisites_met,
+        next_lesson_id=next_lesson_id,
         quiz_context=quiz_context,
     )

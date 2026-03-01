@@ -4,6 +4,7 @@ from fastapi import APIRouter
 from app.api.v1.endpoints import (
     analytics,
     feedback,
+    lesson_generator,
     lessons,
     mock_quiz,
     quizzes,
@@ -13,6 +14,7 @@ from app.api.v1.endpoints import (
 api_router = APIRouter()
 
 api_router.include_router(lessons.router, prefix="/lessons", tags=["Lessons"])
+api_router.include_router(lesson_generator.router, prefix="/lessons", tags=["Lesson Generator"])
 api_router.include_router(quizzes.router, prefix="/quizzes", tags=["Quizzes"])
 api_router.include_router(feedback.router, prefix="/feedback", tags=["Feedback"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])

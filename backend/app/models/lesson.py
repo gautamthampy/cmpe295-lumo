@@ -1,7 +1,7 @@
 """SQLAlchemy ORM model for the content.lessons table."""
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Integer, Text, DateTime, ARRAY
+from sqlalchemy import Column, String, Integer, Text, DateTime, ARRAY, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.core.database import Base
@@ -17,8 +17,14 @@ class Lesson(Base):
     grade_level = Column(Integer, nullable=False)
     content_mdx = Column(Text, nullable=False)
     misconception_tags = Column(ARRAY(Text), nullable=False, default=list)
+    prerequisites = Column(ARRAY(UUID(as_uuid=True)), nullable=False, default=list)
     status = Column(String(20), nullable=False, default="draft")
     version = Column(Integer, nullable=False, default=1)
+    parent_version_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("content.lessons.lesson_id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,

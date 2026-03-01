@@ -13,6 +13,7 @@ SEED_LESSONS = [
         "title": "Understanding Fractions",
         "subject": "Mathematics",
         "grade_level": 3,
+        "prerequisite_titles": [],  # standalone — first lesson in fractions path
         "misconception_tags": [
             "fraction-as-two-numbers",
             "denominator-confusion",
@@ -62,6 +63,7 @@ A fraction describes a **part of a whole**. The denominator tells you how many e
         "title": "Introduction to Multiplication",
         "subject": "Mathematics",
         "grade_level": 3,
+        "prerequisite_titles": [],  # standalone — entry point for operations path
         "misconception_tags": [
             "multiplication-as-addition",
             "commutative-confusion",
@@ -114,6 +116,7 @@ Multiplication is repeated addition of equal groups. The commutative property le
         "title": "Telling Time",
         "subject": "Mathematics",
         "grade_level": 3,
+        "prerequisite_titles": [],  # standalone — measurement path entry point
         "misconception_tags": [
             "hour-minute-swap",
             "analog-digital-mismatch",
@@ -174,6 +177,7 @@ The short hand tells the hour, the long hand tells the minutes. Learn to connect
         "title": "Measurement and Units",
         "subject": "Mathematics",
         "grade_level": 3,
+        "prerequisite_titles": ["Telling Time"],  # builds on time/units concepts
         "misconception_tags": [
             "unit-mismatch",
             "ruler-start-at-one",
@@ -229,6 +233,7 @@ Measurement tells us how long something is using units like inches or centimeter
         "title": "Introduction to Division",
         "subject": "Mathematics",
         "grade_level": 3,
+        "prerequisite_titles": ["Introduction to Multiplication"],  # division requires multiplication knowledge
         "misconception_tags": [
             "division-as-subtraction",
             "remainder-confusion",

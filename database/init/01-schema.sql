@@ -17,8 +17,10 @@ CREATE TABLE IF NOT EXISTS content.lessons (
     grade_level INTEGER NOT NULL CHECK (grade_level BETWEEN 1 AND 12),
     content_mdx TEXT NOT NULL,
     misconception_tags TEXT[] DEFAULT '{}',
+    prerequisites UUID[] DEFAULT '{}',
     status VARCHAR(20) NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'active', 'archived')),
     version INTEGER NOT NULL DEFAULT 1,
+    parent_version_id UUID REFERENCES content.lessons(lesson_id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

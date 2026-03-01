@@ -12,6 +12,7 @@ class LessonCreate(BaseModel):
     grade_level: int = Field(ge=1, le=12)
     content_mdx: str
     misconception_tags: list[str] = []
+    prerequisites: list[UUID] = []
 
 
 class LessonResponse(BaseModel):
@@ -21,8 +22,10 @@ class LessonResponse(BaseModel):
     grade_level: int
     content_mdx: str
     misconception_tags: list[str]
+    prerequisites: list[UUID] = []
     status: str
     version: int
+    parent_version_id: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime
 
@@ -51,6 +54,9 @@ class RenderedLessonResponse(BaseModel):
     accessibility_score: float = Field(default=0.0, ge=0, le=1)
     accessibility_issues: list[AccessibilityIssue] = []
     misconception_tags: list[str]
+    prerequisites: list[UUID] = []
+    prerequisites_met: bool = True
+    next_lesson_id: Optional[UUID] = None
     quiz_context: QuizContext
 
 

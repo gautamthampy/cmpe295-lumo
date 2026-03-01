@@ -31,9 +31,18 @@ export const lessonsAPI = {
   getAll: (params?: { subject?: string; grade_level?: number }) =>
     api.get('/lessons', { params }),
   getById: (id: string) => api.get(`/lessons/${id}`),
-  render: (id: string, userId: string) =>
-    api.get(`/lessons/${id}/render`, { params: { user_id: userId } }),
+  render: (id: string, userId: string, masteryScore?: number) =>
+    api.get(`/lessons/${id}/render`, {
+      params: {
+        user_id: userId,
+        ...(masteryScore !== undefined ? { mastery_score: masteryScore } : {}),
+      },
+    }),
   create: (data: unknown) => api.post('/lessons', data),
+  generate: (data: unknown) => api.post('/lessons/generate', data),
+  publish: (id: string) => api.post(`/lessons/${id}/publish`),
+  revise: (id: string, data: unknown) => api.post(`/lessons/${id}/revise`, data),
+  accessibilityReport: () => api.get('/lessons/accessibility-report'),
 };
 
 export const quizzesAPI = {

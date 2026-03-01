@@ -22,6 +22,39 @@ class GeminiService:
             except Exception as e:
                 logger.warning(f"Gemini client init failed: {e}")
 
+    async def generate_lesson_content(
+        self,
+        topic: str,
+        grade_level: int = 3,
+        subject: str = "Mathematics",
+    ) -> str:
+        """
+        Generate a micro-lesson in MDX format for the given topic and grade level.
+
+        Returns MDX string ready for rendering. Falls back to a template stub
+        if Gemini is not configured.
+        """
+        if not self._client:
+            logger.warning("Gemini not configured — returning stub lesson MDX")
+            return _stub_lesson_mdx(topic, grade_level, subject)
+
+        prompt = f"""Write a micro-lesson in Markdown (MDX-compatible) about "{topic}" for grade {grade_level} {subject} students.
+
+Requirements:
+- Use ## for section headings (2-4 sections)
+- Keep total word count between 150 and 400 words
+- Use **bold** for key terms on first use
+- Use numbered lists for steps, bullet lists for examples
+- Start with "## What Is {topic}?" section
+- End with "## Key Takeaway" section (2-3 sentences)
+- Language must be simple and encouraging for elementary students
+- Do NOT include JSX components, import statements, or HTML tags
+
+Output ONLY the Markdown content, no preamble.
+"""
+        mdx = await self._generate_content(prompt)
+        return mdx if mdx.strip() else _stub_lesson_mdx(topic, grade_level, subject)
+
     async def generate_quiz_questions(
         self,
         topic: str,
@@ -94,3 +127,45 @@ class GeminiService:
         except Exception as e:
             logger.error(f"Gemini generation failed: {e}")
             return ""
+
+
+def _stub_lesson_mdx(topic: str, grade_level: int, subject: str) -> str:
+    """Fallback MDX template used when Gemini API is not configured."""
+    return f"""## What Is {topic}?
+
+**{topic}** is an important concept in grade {grade_level} {subject}.
+In this lesson you will learn the key ideas and how to use them.
+
+## Key Ideas
+
+Learning {topic} helps you build important skills.
+Here are some things to keep in mind:
+
+- Focus on understanding the concept step by step.
+- Practice with examples to build confidence.
+- Ask questions when something is unclear.
+
+## Let's Practice
+
+Work through the following ideas as you study {topic}:
+
+1. Start with what you already know.
+2. Connect new ideas to familiar ones.
+3. Check your understanding with the quiz at the end.
+
+## Key Takeaway
+
+**{topic}** is a foundational skill in {subject}. Take your time to understand each part,
+and remember: every expert started as a beginner!
+"""
+
+
+# Module-level singleton
+_service: Optional["GeminiService"] = None
+
+
+def get_gemini_service(api_key: str = "", model: str = "gemini-1.5-pro") -> "GeminiService":
+    global _service
+    if _service is None:
+        _service = GeminiService(api_key=api_key, model=model)
+    return _service
