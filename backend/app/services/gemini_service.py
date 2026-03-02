@@ -62,16 +62,15 @@ RULES:
 
 
 class GeminiService:
-    def __init__(self, api_key: str, model: str = "gemini-1.5-pro"):
+    def __init__(self, api_key: str, model: str = "gemini-2.0-flash"):
         self.api_key = api_key
         self.model = model
         self._client = None
 
         if api_key:
             try:
-                import google.generativeai as genai
-                genai.configure(api_key=api_key)
-                self._client = genai.GenerativeModel(model)
+                from google import genai
+                self._client = genai.Client(api_key=api_key)
             except Exception as e:
                 logger.warning(f"Gemini client init failed: {e}")
 
@@ -178,11 +177,14 @@ Output ONLY the Markdown content with embedded interactive blocks, no preamble o
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
     ) -> str:
-        """Low-level content generation call."""
+        """Low-level async content generation call using the google-genai SDK."""
         if not self._client:
             return ""
         try:
-            response = self._client.generate_content(prompt)
+            response = await self._client.aio.models.generate_content(
+                model=self.model,
+                contents=prompt,
+            )
             return response.text
         except Exception as e:
             logger.error(f"Gemini generation failed: {e}")
@@ -239,7 +241,7 @@ and remember: every expert started as a beginner!
 _service: Optional["GeminiService"] = None
 
 
-def get_gemini_service(api_key: str = "", model: str = "gemini-1.5-pro") -> "GeminiService":
+def get_gemini_service(api_key: str = "", model: str = "gemini-2.0-flash") -> "GeminiService":
     global _service
     if _service is None:
         _service = GeminiService(api_key=api_key, model=model)
