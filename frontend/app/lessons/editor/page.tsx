@@ -26,6 +26,33 @@ interface FormState {
   mdxContent: string;
 }
 
+const ACTIVITY_TEMPLATES: { label: string; template: string }[] = [
+  {
+    label: 'Fill in Blank',
+    template: `\n<!-- interactive -->\n{"type":"FillInBlank","id":"act-1","instruction":"Complete the sentence","misconception_tag":null,"difficulty":"standard","data":{"prompt":"The answer is ___","answer":"your answer","hint":"optional hint"}}\n<!-- /interactive -->\n`,
+  },
+  {
+    label: 'True / False',
+    template: `\n<!-- interactive -->\n{"type":"TrueOrFalse","id":"act-2","instruction":"True or false?","misconception_tag":null,"difficulty":"standard","data":{"statement":"This statement is true.","correct":true,"explanation":"Explanation shown after answering."}}\n<!-- /interactive -->\n`,
+  },
+  {
+    label: 'Multiple Choice',
+    template: `\n<!-- interactive -->\n{"type":"MultipleChoice","id":"act-3","instruction":"Choose the correct answer","misconception_tag":null,"difficulty":"standard","data":{"question":"Your question here?","options":[{"id":"a","text":"Option A"},{"id":"b","text":"Option B"},{"id":"c","text":"Option C"}],"correct_id":"a"}}\n<!-- /interactive -->\n`,
+  },
+  {
+    label: 'Drag to Sort',
+    template: `\n<!-- interactive -->\n{"type":"DragToSort","id":"act-4","instruction":"Put these in the correct order","misconception_tag":null,"difficulty":"standard","data":{"items":["Item C","Item A","Item B"],"correct_order":["Item A","Item B","Item C"]}}\n<!-- /interactive -->\n`,
+  },
+  {
+    label: 'Match Pairs',
+    template: `\n<!-- interactive -->\n{"type":"MatchPairs","id":"act-5","instruction":"Match each item to its pair","misconception_tag":null,"difficulty":"standard","data":{"pairs":[{"left":"Left 1","right":"Right 1"},{"left":"Left 2","right":"Right 2"}]}}\n<!-- /interactive -->\n`,
+  },
+  {
+    label: 'Number Line',
+    template: `\n<!-- interactive -->\n{"type":"NumberLine","id":"act-6","instruction":"Place the value on the number line","misconception_tag":null,"difficulty":"standard","data":{"min":0,"max":1,"divisions":4,"target":0.5,"label":"Place 1/2 on the number line"}}\n<!-- /interactive -->\n`,
+  },
+];
+
 export default function LessonEditorPage() {
   const router = useRouter();
 
@@ -223,7 +250,22 @@ export default function LessonEditorPage() {
 
         {/* MDX Editor */}
         <div className="glass rounded-2xl p-6 mb-6">
-          <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-widest mb-4">Content (MDX)</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-widest">Content (MDX)</h2>
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              <span className="text-xs text-slate-400 mr-1">Insert activity:</span>
+              {ACTIVITY_TEMPLATES.map(({ label, template }) => (
+                <button
+                  key={label}
+                  onClick={() => setForm((f) => ({ ...f, mdxContent: f.mdxContent + template }))}
+                  className="px-2 py-1 text-xs rounded-lg glass border border-white/30 text-slate-600 hover:text-indigo-700 hover:border-indigo-300 transition-colors"
+                  aria-label={`Insert ${label} activity template`}
+                >
+                  + {label}
+                </button>
+              ))}
+            </div>
+          </div>
           <MdxEditor
             value={form.mdxContent}
             onChange={(mdx) => setForm((f) => ({ ...f, mdxContent: mdx }))}

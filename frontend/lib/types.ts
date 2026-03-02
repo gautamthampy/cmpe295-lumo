@@ -40,7 +40,91 @@ export interface RenderedLessonResponse {
   prerequisites_met: boolean;
   next_lesson_id: string | null;
   quiz_context: QuizContext;
+  interactive_activities: InteractiveActivity[];
 }
+
+// ---- Interactive Activities ----
+
+export interface ActivityResult {
+  activityId: string;
+  correct: boolean;
+  attempts: number;
+  misconceptionTag: string | null;
+  timeSpentMs: number;
+}
+
+interface ActivityBase {
+  id: string;
+  instruction: string;
+  misconception_tag: string | null;
+  difficulty: 'scaffold' | 'standard' | 'advanced';
+}
+
+export interface FillInBlankActivity extends ActivityBase {
+  type: 'FillInBlank';
+  data: { prompt: string; answer: string; hint?: string };
+}
+
+export interface TrueOrFalseActivity extends ActivityBase {
+  type: 'TrueOrFalse';
+  data: { statement: string; correct: boolean; explanation: string };
+}
+
+export interface MultipleChoiceActivity extends ActivityBase {
+  type: 'MultipleChoice';
+  data: {
+    question: string;
+    options: { id: string; text: string }[];
+    correct_id: string;
+  };
+}
+
+export interface DragToSortActivity extends ActivityBase {
+  type: 'DragToSort';
+  data: { items: string[]; correct_order: string[]; label?: string };
+}
+
+export interface MatchPairsActivity extends ActivityBase {
+  type: 'MatchPairs';
+  data: { pairs: { left: string; right: string }[] };
+}
+
+export interface CategorySortActivity extends ActivityBase {
+  type: 'CategorySort';
+  data: { categories: { name: string; items: string[] }[]; prompt?: string };
+}
+
+export interface WordBankActivity extends ActivityBase {
+  type: 'WordBank';
+  data: { passage: string; bank: string[]; answers: string[] };
+}
+
+export interface NumberLineActivity extends ActivityBase {
+  type: 'NumberLine';
+  data: { min: number; max: number; divisions: number; target: number; label?: string };
+}
+
+export interface CountingGridActivity extends ActivityBase {
+  type: 'CountingGrid';
+  data: { rows: number; cols: number; target_count: number; prompt: string };
+}
+
+export interface HighlightTextActivity extends ActivityBase {
+  type: 'HighlightText';
+  data: { passage: string; targets: string[]; prompt: string };
+}
+
+export type InteractiveActivity =
+  | FillInBlankActivity
+  | TrueOrFalseActivity
+  | MultipleChoiceActivity
+  | DragToSortActivity
+  | MatchPairsActivity
+  | CategorySortActivity
+  | WordBankActivity
+  | NumberLineActivity
+  | CountingGridActivity
+  | HighlightTextActivity;
 
 // ---- Quiz ----
 

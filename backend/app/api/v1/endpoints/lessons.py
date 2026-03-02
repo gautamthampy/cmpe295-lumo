@@ -38,6 +38,7 @@ class PreviewResponse(BaseModel):
     html: str
     accessibility_score: float
     issues: list[dict]
+    interactive_activities: list[dict] = []
 
 
 @router.post("/preview", response_model=PreviewResponse)
@@ -48,6 +49,7 @@ async def preview_lesson(payload: PreviewRequest):
     """
     renderer = get_renderer()
     html = renderer.render(payload.content_mdx)
+    activities = renderer.extract_interactive_activities(payload.content_mdx)
     checker = get_checker()
     result = checker.check(html, grade_level=payload.grade_level)
     return PreviewResponse(
@@ -57,6 +59,7 @@ async def preview_lesson(payload: PreviewRequest):
             {"rule": i.rule, "severity": i.severity, "message": i.message}
             for i in result.issues
         ],
+        interactive_activities=activities,
     )
 
 
@@ -315,6 +318,8 @@ async def render_lesson(
         for i in result.issues
     ]
 
+    activities = renderer.extract_interactive_activities(lesson.content_mdx)
+
     return RenderedLessonResponse(
         lesson_id=lesson.lesson_id,
         html_content=html_content,
@@ -326,4 +331,5 @@ async def render_lesson(
         prerequisites_met=prerequisites_met,
         next_lesson_id=next_lesson_id,
         quiz_context=quiz_context,
+        interactive_activities=activities,
     )

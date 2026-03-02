@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import LessonViewer, { type LessonSection } from '@/components/lessons/LessonViewer';
 import { lessonsAPI, mockAPI } from '@/lib/api';
-import type { RenderedLessonResponse, QuizResponse, AccessibilityIssue } from '@/lib/types';
+import type { RenderedLessonResponse, QuizResponse, AccessibilityIssue, ActivityResult } from '@/lib/types';
 
 // No auth in PoC — hardcoded demo user
 const DEMO_USER_ID = '00000000-0000-0000-0000-000000000001';
@@ -63,6 +63,7 @@ export default function LessonDetailPage() {
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, string>>({});
   const [quizSubmitted, setQuizSubmitted] = useState(false);
   const [lessonDone, setLessonDone] = useState(false);
+  const activityResults = useRef<ActivityResult[]>([]);
 
   useEffect(() => {
     startTimeRef.current = Date.now();
@@ -118,6 +119,10 @@ export default function LessonDetailPage() {
       ? correctCount / quizResult.questions.length
       : 0;
 
+    const misconceptionsTriggered = activityResults.current
+      .filter((r) => !r.correct && r.misconceptionTag)
+      .map((r) => r.misconceptionTag as string);
+
     mockAPI.ingestEvent({
       event_type: 'lesson_completed',
       user_id: DEMO_USER_ID,
@@ -128,6 +133,8 @@ export default function LessonDetailPage() {
         quiz_score: quizScore,
         quiz_passed: quizScore >= QUIZ_PASS_THRESHOLD,
         time_spent_seconds: Math.round((Date.now() - startTimeRef.current) / 1000),
+        activity_results: activityResults.current,
+        misconceptions_triggered: [...new Set(misconceptionsTriggered)],
       },
     }).catch(() => {});
 
@@ -184,7 +191,9 @@ export default function LessonDetailPage() {
         sections={sections}
         estimatedMinutes={rendered.estimated_time_minutes}
         accessibilityScore={rendered.accessibility_score}
+        interactiveActivities={rendered.interactive_activities ?? []}
         onComplete={handleLessonComplete}
+        onActivityResult={(r) => { activityResults.current.push(r); }}
       />
 
       {/* Quiz section */}

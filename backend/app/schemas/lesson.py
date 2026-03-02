@@ -58,6 +58,7 @@ class RenderedLessonResponse(BaseModel):
     prerequisites_met: bool = True
     next_lesson_id: Optional[UUID] = None
     quiz_context: QuizContext
+    interactive_activities: list[dict] = []
 
 
 # --------------- Quiz schemas (used by mock endpoint) ---------------

@@ -11,7 +11,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { lessonsAPI } from '@/lib/api';
-import type { AccessibilityIssue } from '@/lib/types';
+import type { AccessibilityIssue, InteractiveActivity, ActivityResult } from '@/lib/types';
+import InteractiveBlock from '@/components/interactive/InteractiveBlock';
 
 interface MdxEditorProps {
   value: string;
@@ -25,8 +26,34 @@ interface PreviewState {
   html: string;
   score: number;
   issues: AccessibilityIssue[];
+  activities: InteractiveActivity[];
   loading: boolean;
   error: string | null;
+}
+
+/** Parse interactive placeholders from preview HTML and split into segments. */
+function parsePreviewSegments(
+  html: string,
+  activities: InteractiveActivity[],
+): Array<{ kind: 'html'; html: string } | { kind: 'interactive'; activity: InteractiveActivity }> {
+  const activityById = Object.fromEntries(activities.map((a) => [a.id, a]));
+  const parts = html.split(/(<div\s+data-interactive="[^"]*"\s+class="interactive-placeholder"><\/div>)/);
+  const segments: Array<{ kind: 'html'; html: string } | { kind: 'interactive'; activity: InteractiveActivity }> = [];
+  for (const part of parts) {
+    const match = part.match(/data-interactive="([^"]+)"/);
+    if (match) {
+      try {
+        const decoded = JSON.parse(atob(match[1])) as { id: string } & InteractiveActivity;
+        const activity = activityById[decoded.id] ?? decoded;
+        segments.push({ kind: 'interactive', activity });
+      } catch {
+        segments.push({ kind: 'html', html: part });
+      }
+    } else if (part) {
+      segments.push({ kind: 'html', html: part });
+    }
+  }
+  return segments;
 }
 
 const SCORE_COLOR = (score: number) => {
@@ -45,6 +72,7 @@ export default function MdxEditor({
     html: '',
     score: 0,
     issues: [],
+    activities: [],
     loading: false,
     error: null,
   });
@@ -53,7 +81,7 @@ export default function MdxEditor({
 
   useEffect(() => {
     if (!value.trim()) {
-      setPreview({ html: '', score: 0, issues: [], loading: false, error: null });
+      setPreview({ html: '', score: 0, issues: [], activities: [], loading: false, error: null });
       return;
     }
 
@@ -63,11 +91,12 @@ export default function MdxEditor({
     timerRef.current = setTimeout(async () => {
       try {
         const res = await lessonsAPI.preview({ content_mdx: value, grade_level: gradeLevel });
-        const data = res.data as { html: string; accessibility_score: number; issues: AccessibilityIssue[] };
+        const data = res.data as { html: string; accessibility_score: number; issues: AccessibilityIssue[]; interactive_activities?: InteractiveActivity[] };
         setPreview({
           html: data.html,
           score: data.accessibility_score,
           issues: data.issues,
+          activities: data.interactive_activities ?? [],
           loading: false,
           error: null,
         });
@@ -104,8 +133,10 @@ export default function MdxEditor({
             aria-describedby="mdx-editor-hint"
           />
           <p id="mdx-editor-hint" className="text-xs text-slate-400 mt-1">
-            Use ## for sections. Scaffold blocks: wrap content with{' '}
-            <code className="bg-slate-100 px-1 rounded text-slate-600">{`<!-- scaffold --> ... <!-- /scaffold -->`}</code>
+            Use ## for sections · Scaffold:{' '}
+            <code className="bg-slate-100 px-1 rounded text-slate-600">{`<!-- scaffold -->...<!-- /scaffold -->`}</code>
+            {' '}· Interactive:{' '}
+            <code className="bg-slate-100 px-1 rounded text-slate-600">{`<!-- interactive -->{...}<!-- /interactive -->`}</code>
           </p>
         </div>
 
@@ -135,7 +166,19 @@ export default function MdxEditor({
             aria-label="Lesson HTML preview"
           >
             {preview.html ? (
-              <div dangerouslySetInnerHTML={{ __html: preview.html }} />
+              <div>
+                {parsePreviewSegments(preview.html, preview.activities).map((seg, i) =>
+                  seg.kind === 'html' ? (
+                    <div key={i} dangerouslySetInnerHTML={{ __html: seg.html }} />
+                  ) : (
+                    <InteractiveBlock
+                      key={seg.activity.id}
+                      activity={seg.activity}
+                      onResult={(_r: ActivityResult) => {/* preview-only, no-op */}}
+                    />
+                  )
+                )}
+              </div>
             ) : preview.loading ? (
               <p className="text-slate-400 text-sm italic">Rendering…</p>
             ) : preview.error ? (

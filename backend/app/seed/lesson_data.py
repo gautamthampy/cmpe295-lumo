@@ -25,11 +25,19 @@ A fraction tells us about **equal parts** of a whole. When we cut a pizza into 4
 
 The number on the **bottom** is called the **denominator**. It tells us how many equal parts the whole is divided into. The number on the **top** is called the **numerator**. It tells us how many parts we are talking about.
 
+<!-- interactive -->
+{"type":"TrueOrFalse","id":"act-1","instruction":"True or false?","misconception_tag":"fraction-as-two-numbers","difficulty":"standard","data":{"statement":"The fraction 3/4 means the numbers 3 and 4 are separate.","correct":false,"explanation":"3/4 is ONE number! It means 3 out of 4 equal parts — not two separate numbers."}}
+<!-- /interactive -->
+
 ## Reading Fractions
 
 When we see **3/4**, we say "three fourths." The denominator (4) means the whole is split into 4 equal pieces. The numerator (3) means we are looking at 3 of those pieces.
 
 **Important:** A fraction is ONE number, not two separate numbers. 3/4 does not mean "3 and 4." It means "3 out of 4 equal parts."
+
+<!-- interactive -->
+{"type":"FillInBlank","id":"act-2","instruction":"Complete the sentence about fractions","misconception_tag":"denominator-confusion","difficulty":"standard","data":{"prompt":"In the fraction 2/5, the denominator is ___ and it tells us the whole is divided into ___ equal parts.","answer":"5","hint":"The denominator is the number on the bottom of the fraction."}}
+<!-- /interactive -->
 
 ## Fractions of a Shape
 
@@ -49,6 +57,10 @@ We can also show fractions on a number line. The space between 0 and 1 is one wh
 - The second mark is **2/4** (which is the same as 1/2)
 - The third mark is **3/4**
 - The fourth mark is **4/4** (which equals 1 whole)
+
+<!-- interactive -->
+{"type":"NumberLine","id":"act-3","instruction":"Place 3/4 on the number line","misconception_tag":"denominator-confusion","difficulty":"standard","data":{"min":0,"max":1,"divisions":4,"target":0.75,"label":"Place the marker at 3/4"}}
+<!-- /interactive -->
 
 ## Key Takeaway
 
@@ -75,6 +87,10 @@ Multiplication is a fast way to add the **same number** many times. Instead of w
 
 Think of it like this: if you have 3 bags and each bag has 4 apples, you have 3 × 4 = 12 apples in total.
 
+<!-- interactive -->
+{"type":"FillInBlank","id":"act-1","instruction":"Complete the multiplication equation","misconception_tag":"multiplication-as-addition","difficulty":"standard","data":{"prompt":"3 groups of 4 apples means 3 × 4 = ___","answer":"12","hint":"Count 3 groups of 4: 4 + 4 + 4 = ?"}}
+<!-- /interactive -->
+
 ## Groups and Arrays
 
 An **array** is a way to arrange objects in equal rows and columns. If you place 3 rows of 5 stars, you can count them by multiplying: 3 × 5 = 15.
@@ -84,6 +100,10 @@ Arrays help us see that multiplication makes equal groups:
 - 2 × 6 means 2 rows of 6
 - 4 × 3 means 4 rows of 3
 - 5 × 5 means 5 rows of 5
+
+<!-- interactive -->
+{"type":"CountingGrid","id":"act-2","instruction":"Tap cells to build the array for 3 × 4","misconception_tag":"multiplication-as-addition","difficulty":"standard","data":{"rows":3,"cols":4,"target_count":12,"prompt":"Tap 12 cells to fill 3 rows of 4"}}
+<!-- /interactive -->
 
 ## The Commutative Property
 
@@ -102,6 +122,10 @@ Two special rules to remember:
 
 - **Any number times 0 equals 0.** If you have 5 bags with 0 apples each, you have no apples! 5 × 0 = 0.
 - **Any number times 1 equals that number.** If you have 1 group of 7, you just have 7. 7 × 1 = 7.
+
+<!-- interactive -->
+{"type":"TrueOrFalse","id":"act-3","instruction":"True or false?","misconception_tag":"zero-property-error","difficulty":"standard","data":{"statement":"Any number multiplied by 0 equals that same number.","correct":false,"explanation":"Any number times 0 always equals 0! If there are 0 in each group, there is nothing to count."}}
+<!-- /interactive -->
 
 ## Key Takeaway
 

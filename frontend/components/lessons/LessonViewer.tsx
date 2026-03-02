@@ -15,7 +15,9 @@
 
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import type { InteractiveActivity, ActivityResult } from '@/lib/types';
+import InteractiveBlock from '@/components/interactive/InteractiveBlock';
 
 export interface LessonSection {
   id: string;
@@ -32,8 +34,66 @@ interface LessonViewerProps {
   sections: LessonSection[];
   estimatedMinutes: number;
   accessibilityScore?: number;
+  interactiveActivities?: InteractiveActivity[];
   onComplete?: () => void;
   onSectionComplete?: (sectionId: string) => void;
+  onActivityResult?: (result: ActivityResult) => void;
+}
+
+/** Parse a rendered HTML string into HTML segments and interactive placeholders. */
+function parseContentSegments(
+  html: string,
+  activities: InteractiveActivity[],
+): Array<{ kind: 'html'; html: string } | { kind: 'interactive'; activity: InteractiveActivity }> {
+  const activityById = Object.fromEntries(activities.map((a) => [a.id, a]));
+  // Split on <div data-interactive="..." class="interactive-placeholder"></div>
+  const parts = html.split(/(<div\s+data-interactive="[^"]*"\s+class="interactive-placeholder"><\/div>)/);
+  const segments: Array<{ kind: 'html'; html: string } | { kind: 'interactive'; activity: InteractiveActivity }> = [];
+
+  for (const part of parts) {
+    const match = part.match(/data-interactive="([^"]+)"/);
+    if (match) {
+      try {
+        const decoded = JSON.parse(atob(match[1])) as { id: string } & InteractiveActivity;
+        const activity = activityById[decoded.id] ?? decoded;
+        segments.push({ kind: 'interactive', activity });
+      } catch {
+        // Fall through to render as HTML (error placeholder from backend)
+        segments.push({ kind: 'html', html: part });
+      }
+    } else if (part) {
+      segments.push({ kind: 'html', html: part });
+    }
+  }
+  return segments;
+}
+
+interface SectionContentProps {
+  html: string;
+  activities: InteractiveActivity[];
+  fontSizeClass: string;
+  highContrast: boolean;
+  onActivityResult: (r: ActivityResult) => void;
+}
+
+function SectionContent({ html, activities, fontSizeClass, highContrast, onActivityResult }: SectionContentProps) {
+  const segments = parseContentSegments(html, activities);
+
+  return (
+    <>
+      {segments.map((seg, i) =>
+        seg.kind === 'html' ? (
+          <div
+            key={i}
+            className={`prose prose-lg max-w-none ${fontSizeClass} ${highContrast ? 'prose-invert' : 'prose-green'}`}
+            dangerouslySetInnerHTML={{ __html: seg.html }}
+          />
+        ) : (
+          <InteractiveBlock key={seg.activity.id} activity={seg.activity} onResult={onActivityResult} />
+        )
+      )}
+    </>
+  );
 }
 
 export default function LessonViewer({
@@ -43,8 +103,10 @@ export default function LessonViewer({
   sections,
   estimatedMinutes,
   accessibilityScore,
+  interactiveActivities = [],
   onComplete,
   onSectionComplete,
+  onActivityResult,
 }: LessonViewerProps) {
   const [currentSection, setCurrentSection] = useState(0);
   const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
@@ -52,9 +114,7 @@ export default function LessonViewer({
   const [highContrast, setHighContrast] = useState(false);
   const [showA11yMenu, setShowA11yMenu] = useState(false);
 
-  // Focus target: section heading
   const sectionHeadingRef = useRef<HTMLHeadingElement>(null);
-  // Trap focus return when closing a11y menu
   const a11yTriggerRef = useRef<HTMLButtonElement>(null);
 
   const progressPct = sections.length > 0
@@ -63,34 +123,11 @@ export default function LessonViewer({
 
   const fontSizeClass = { normal: 'text-base', large: 'text-lg', 'x-large': 'text-xl' }[fontSize];
 
-  // Move focus to section heading when section changes
   useEffect(() => {
     sectionHeadingRef.current?.focus();
   }, [currentSection]);
 
-  // Keyboard navigation: Arrow keys advance/retreat sections; Escape closes menu
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      // Don't capture if user is typing in an input/textarea
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)) return;
-
-      if (e.key === 'ArrowRight' || e.key === 'n') {
-        e.preventDefault();
-        goNext();
-      } else if (e.key === 'ArrowLeft' || e.key === 'p') {
-        e.preventDefault();
-        goPrev();
-      } else if (e.key === 'Escape' && showA11yMenu) {
-        setShowA11yMenu(false);
-        a11yTriggerRef.current?.focus();
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentSection, showA11yMenu, sections.length]);
-
-  function goNext() {
+  const goNext = useCallback(() => {
     const current = sections[currentSection];
     if (!completedIds.has(current.id)) {
       const next = new Set(completedIds);
@@ -98,16 +135,33 @@ export default function LessonViewer({
       setCompletedIds(next);
       onSectionComplete?.(current.id);
     }
-
     if (currentSection < sections.length - 1) {
       setCurrentSection((i) => i + 1);
     } else {
       onComplete?.();
     }
-  }
+  }, [currentSection, completedIds, sections, onSectionComplete, onComplete]);
 
-  function goPrev() {
+  const goPrev = useCallback(() => {
     if (currentSection > 0) setCurrentSection((i) => i - 1);
+  }, [currentSection]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)) return;
+      if (e.key === 'ArrowRight' || e.key === 'n') { e.preventDefault(); goNext(); }
+      else if (e.key === 'ArrowLeft' || e.key === 'p') { e.preventDefault(); goPrev(); }
+      else if (e.key === 'Escape' && showA11yMenu) {
+        setShowA11yMenu(false);
+        a11yTriggerRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [goNext, goPrev, showA11yMenu]);
+
+  function handleActivityResult(result: ActivityResult) {
+    onActivityResult?.(result);
   }
 
   if (sections.length === 0) {
@@ -138,10 +192,7 @@ export default function LessonViewer({
       </div>
 
       {/* ---- Header (role="banner") ---- */}
-      <header
-        role="banner"
-        className={`sticky top-0 z-10 border-b shadow-sm ${cardBg}`}
-      >
+      <header role="banner" className={`sticky top-0 z-10 border-b shadow-sm ${cardBg}`}>
         <div className="max-w-5xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex-1 min-w-0">
@@ -166,9 +217,7 @@ export default function LessonViewer({
               aria-expanded={showA11yMenu}
               aria-haspopup="dialog"
               aria-label="Accessibility settings"
-              className={`ml-3 p-2 rounded-lg transition-colors ${
-                highContrast ? 'hover:bg-gray-800' : 'hover:bg-gray-100'
-              }`}
+              className={`ml-3 p-2 rounded-lg transition-colors ${highContrast ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
@@ -182,9 +231,7 @@ export default function LessonViewer({
                 aria-label="Accessibility settings"
                 className={`absolute right-4 top-16 w-64 border rounded-xl shadow-lg p-5 z-50 ${cardBg}`}
               >
-                <h2 className="font-semibold mb-4 text-sm uppercase tracking-wide">
-                  Accessibility
-                </h2>
+                <h2 className="font-semibold mb-4 text-sm uppercase tracking-wide">Accessibility</h2>
                 <div className="space-y-4">
                   <fieldset>
                     <legend className="text-sm font-medium mb-2">Text Size</legend>
@@ -219,9 +266,7 @@ export default function LessonViewer({
                   </label>
                 </div>
 
-                <p className={`text-xs mt-4 ${mutedText}`}>
-                  Tip: Use ← → keys to navigate sections
-                </p>
+                <p className={`text-xs mt-4 ${mutedText}`}>Tip: Use ← → keys to navigate sections</p>
               </div>
             )}
           </div>
@@ -238,9 +283,7 @@ export default function LessonViewer({
               aria-valuemin={0}
               aria-valuemax={100}
               aria-label={`Lesson progress: ${progressPct}%`}
-              className={`w-full h-2 rounded-full overflow-hidden ${
-                highContrast ? 'bg-gray-800' : 'bg-gray-200'
-              }`}
+              className={`w-full h-2 rounded-full overflow-hidden ${highContrast ? 'bg-gray-800' : 'bg-gray-200'}`}
             >
               <div
                 className="h-full bg-gradient-to-r from-green-400 to-green-600 transition-all duration-500"
@@ -261,9 +304,7 @@ export default function LessonViewer({
               aria-label="Lesson sections"
               className={`sticky top-24 rounded-xl border p-4 ${cardBg}`}
             >
-              <h2 className={`text-xs font-semibold uppercase tracking-wide mb-3 ${mutedText}`}>
-                Sections
-              </h2>
+              <h2 className={`text-xs font-semibold uppercase tracking-wide mb-3 ${mutedText}`}>Sections</h2>
               <ul className="space-y-1">
                 {sections.map((section, index) => (
                   <li key={section.id}>
@@ -307,12 +348,13 @@ export default function LessonViewer({
                 {sections[currentSection].title}
               </h2>
 
-              {/* Rendered HTML from backend MDX renderer */}
-              <div
-                className={`prose prose-lg max-w-none ${fontSizeClass} ${
-                  highContrast ? 'prose-invert' : 'prose-green'
-                }`}
-                dangerouslySetInnerHTML={{ __html: sections[currentSection].content }}
+              {/* Section content — mixes HTML and interactive React components */}
+              <SectionContent
+                html={sections[currentSection].content}
+                activities={interactiveActivities}
+                fontSizeClass={fontSizeClass}
+                highContrast={highContrast}
+                onActivityResult={handleActivityResult}
               />
 
               {/* Section navigation buttons */}
@@ -334,11 +376,7 @@ export default function LessonViewer({
 
                 <button
                   onClick={goNext}
-                  aria-label={
-                    currentSection === sections.length - 1
-                      ? 'Complete lesson'
-                      : 'Next section'
-                  }
+                  aria-label={currentSection === sections.length - 1 ? 'Complete lesson' : 'Next section'}
                   className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
                 >
                   {currentSection === sections.length - 1 ? (
