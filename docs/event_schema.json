@@ -1,0 +1,253 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LUMO Event Schema",
+  "description": "Cross-component event schema for tracking user interactions and system events",
+  "definitions": {
+    "base_event": {
+      "type": "object",
+      "required": ["event_type", "timestamp", "user_id", "session_id"],
+      "properties": {
+        "event_type": {
+          "type": "string",
+          "description": "Type of event"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp"
+        },
+        "user_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "User identifier"
+        },
+        "session_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Session identifier"
+        }
+      }
+    },
+    "lesson_started_event": {
+      "allOf": [
+        { "$ref": "#/definitions/base_event" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "lesson_started" },
+            "data": {
+              "type": "object",
+              "required": ["lesson_id", "lesson_title"],
+              "properties": {
+                "lesson_id": { "type": "string", "format": "uuid" },
+                "lesson_title": { "type": "string" },
+                "subject": { "type": "string" },
+                "grade_level": { "type": "integer", "minimum": 1, "maximum": 12 }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "lesson_completed_event": {
+      "allOf": [
+        { "$ref": "#/definitions/base_event" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "lesson_completed" },
+            "data": {
+              "type": "object",
+              "required": ["lesson_id", "time_spent_ms"],
+              "properties": {
+                "lesson_id": { "type": "string", "format": "uuid" },
+                "time_spent_ms": { "type": "integer", "minimum": 0 },
+                "completion_percentage": { "type": "number", "minimum": 0, "maximum": 100 }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "quiz_started_event": {
+      "allOf": [
+        { "$ref": "#/definitions/base_event" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "quiz_started" },
+            "data": {
+              "type": "object",
+              "required": ["quiz_id", "lesson_id"],
+              "properties": {
+                "quiz_id": { "type": "string", "format": "uuid" },
+                "lesson_id": { "type": "string", "format": "uuid" },
+                "question_count": { "type": "integer", "minimum": 1 }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "question_answered_event": {
+      "allOf": [
+        { "$ref": "#/definitions/base_event" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "question_answered" },
+            "data": {
+              "type": "object",
+              "required": ["question_id", "answer", "is_correct", "response_latency_ms"],
+              "properties": {
+                "question_id": { "type": "string", "format": "uuid" },
+                "answer": { "type": "string" },
+                "is_correct": { "type": "boolean" },
+                "response_latency_ms": { "type": "integer", "minimum": 0 },
+                "hint_requested": { "type": "boolean" },
+                "hint_level": { "type": "integer", "minimum": 1, "maximum": 3 },
+                "misconception_type": { "type": "string" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "quiz_completed_event": {
+      "allOf": [
+        { "$ref": "#/definitions/base_event" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "quiz_completed" },
+            "data": {
+              "type": "object",
+              "required": ["quiz_id", "score", "total_questions"],
+              "properties": {
+                "quiz_id": { "type": "string", "format": "uuid" },
+                "score": { "type": "integer", "minimum": 0 },
+                "total_questions": { "type": "integer", "minimum": 1 },
+                "time_spent_ms": { "type": "integer", "minimum": 0 },
+                "mastery_achieved": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "hint_requested_event": {
+      "allOf": [
+        { "$ref": "#/definitions/base_event" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "hint_requested" },
+            "data": {
+              "type": "object",
+              "required": ["question_id", "hint_level"],
+              "properties": {
+                "question_id": { "type": "string", "format": "uuid" },
+                "hint_level": { "type": "integer", "minimum": 1, "maximum": 3 },
+                "misconception_type": { "type": "string" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "feedback_provided_event": {
+      "allOf": [
+        { "$ref": "#/definitions/base_event" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "feedback_provided" },
+            "data": {
+              "type": "object",
+              "required": ["question_id", "feedback_type"],
+              "properties": {
+                "question_id": { "type": "string", "format": "uuid" },
+                "feedback_type": { "type": "string", "enum": ["hint", "explanation", "motivation"] },
+                "misconception_addressed": { "type": "string" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "attention_drift_detected_event": {
+      "allOf": [
+        { "$ref": "#/definitions/base_event" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "attention_drift_detected" },
+            "data": {
+              "type": "object",
+              "required": ["attention_score"],
+              "properties": {
+                "attention_score": { "type": "number", "minimum": 0, "maximum": 1 },
+                "response_latency_ms": { "type": "integer" },
+                "error_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+                "action_taken": { "type": "string", "enum": ["break_suggested", "recap_triggered", "none"] }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "break_suggested_event": {
+      "allOf": [
+        { "$ref": "#/definitions/base_event" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "break_suggested" },
+            "data": {
+              "type": "object",
+              "required": ["reason"],
+              "properties": {
+                "reason": { "type": "string", "enum": ["attention_drift", "error_streak", "session_duration"] },
+                "duration_minutes": { "type": "integer", "minimum": 1, "maximum": 5 },
+                "accepted": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "re_quiz_triggered_event": {
+      "allOf": [
+        { "$ref": "#/definitions/base_event" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "re_quiz_triggered" },
+            "data": {
+              "type": "object",
+              "required": ["original_quiz_id", "trigger_reason"],
+              "properties": {
+                "original_quiz_id": { "type": "string", "format": "uuid" },
+                "trigger_reason": { "type": "string" },
+                "misconception_type": { "type": "string" }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/definitions/lesson_started_event" },
+    { "$ref": "#/definitions/lesson_completed_event" },
+    { "$ref": "#/definitions/quiz_started_event" },
+    { "$ref": "#/definitions/question_answered_event" },
+    { "$ref": "#/definitions/quiz_completed_event" },
+    { "$ref": "#/definitions/hint_requested_event" },
+    { "$ref": "#/definitions/feedback_provided_event" },
+    { "$ref": "#/definitions/attention_drift_detected_event" },
+    { "$ref": "#/definitions/break_suggested_event" },
+    { "$ref": "#/definitions/re_quiz_triggered_event" }
+  ]
+}
+
