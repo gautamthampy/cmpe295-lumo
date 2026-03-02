@@ -23,12 +23,41 @@ LUMO addresses the limitations of traditional one-size-fits-all teaching by prov
 
 ```
 lumo/
-├── backend/           # FastAPI service (content, sessions, analytics)
-├── frontend/          # Next.js web app (lesson, quiz, feedback interfaces)
-├── experimental/      # SOTA baseline reproduction and simulations
-├── database/          # PostgreSQL schemas and initialization
-├── contracts/         # API contracts and event schemas
-└── docs/              # Documentation
+├── backend/                        # FastAPI service
+│   ├── app/schemas/interactive.py  # 10 activity type schemas (Pydantic v2)
+│   ├── app/services/               # mdx_renderer, accessibility_checker, gemini_service
+│   ├── app/api/v1/endpoints/       # lessons, lesson_generator
+│   └── tests/                      # 98 unit tests
+├── frontend/                       # Next.js 15 app
+│   ├── app/lessons/                # /lessons, /lessons/[id], /lessons/editor, /lessons/analytics
+│   ├── components/interactive/     # 10 WCAG 2.1 AA activity components
+│   └── components/lessons/         # LessonViewer, LearningPath, MdxEditor
+├── experimental/                   # SOTA baseline reproduction and simulations
+├── database/                       # PostgreSQL init scripts
+├── contracts/                      # API contracts and event schemas
+└── docs/                           # Architecture diagrams
+```
+
+### Interactive Activity Types
+
+10 activity types can be embedded anywhere in a lesson's MDX content:
+
+| Category | Types |
+|---|---|
+| Universal | FillInBlank, TrueOrFalse, MultipleChoice, DragToSort, MatchPairs, CategorySort, WordBank |
+| Math | NumberLine, CountingGrid |
+| English/Reading | HighlightText |
+
+Each activity carries a `misconception_tag` that is surfaced in analytics when a student answers incorrectly.
+
+**Usage in MDX:**
+```markdown
+<!-- interactive -->
+{"type":"TrueOrFalse","id":"act-1","instruction":"True or false?",
+ "misconception_tag":"fraction-as-two-numbers","difficulty":"standard",
+ "data":{"statement":"3/4 means 3 and 4 are separate numbers.","correct":false,
+          "explanation":"3/4 is ONE number — 3 out of 4 equal parts."}}
+<!-- /interactive -->
 ```
 
 ## Getting Started
@@ -75,19 +104,19 @@ Default credentials (development only):
 ```bash
 cd backend
 
-# Create virtual environment with uv
-uv venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+# Create virtual environment
+uv venv                           # or: python -m venv .venv
+source .venv/bin/activate         # Windows: .venv\Scripts\activate
 
 # Install dependencies
-uv pip install -e .
+uv pip install -e .               # or: pip install -r requirements.txt
 
-# Copy environment variables
-cp .env.example .env
-# Edit .env with your configuration
+# (Optional) Set Gemini API key for real AI generation
+# Without it, a built-in stub template is used automatically
+export GEMINI_API_KEY=your_key_here
 
-# Run database migrations (when Alembic is configured)
-# alembic upgrade head
+# Seed the database with 5 Grade 3 Math lessons
+python -m app.seed.seed_db
 
 # Start development server
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
@@ -135,12 +164,27 @@ The database is organized into three schemas:
 
 API contracts are defined in `contracts/api_contracts.yaml` (OpenAPI 3.0 spec).
 
-Key endpoints:
-- `GET /api/v1/lessons`: List all lessons
-- `POST /api/v1/quizzes/generate`: Generate adaptive quiz
-- `POST /api/v1/feedback/hint`: Request contextual hint
-- `POST /api/v1/analytics/events`: Ingest user event
-- `GET /api/v1/analytics/dashboard/{user_id}`: Get dashboard data
+**Lesson Designer (implemented):**
+- `GET  /api/v1/lessons` — list all lessons (filter by subject/grade)
+- `GET  /api/v1/lessons/{id}` — get lesson by ID
+- `POST /api/v1/lessons` — create lesson (status=draft)
+- `POST /api/v1/lessons/preview` — render MDX→HTML + accessibility score (no DB save)
+- `POST /api/v1/lessons/generate` — AI-generate lesson via Gemini (stub fallback without key)
+- `GET  /api/v1/lessons/{id}/render` — adaptive render + quiz context + next_lesson_id
+- `POST /api/v1/lessons/{id}/publish` — publish (requires WCAG score ≥ 80%)
+- `POST /api/v1/lessons/{id}/revise` — create new version
+- `GET  /api/v1/lessons/analytics/summary` — per-lesson engagement metrics
+- `GET  /api/v1/lessons/accessibility-report` — WCAG 2.1 AA audit of all lessons
+
+**Other agents (stub endpoints):**
+- `POST /api/v1/quizzes/generate` — adaptive quiz generation (Alshama)
+- `POST /api/v1/feedback/hint` — tiered hint request (Bhavya)
+- `POST /api/v1/analytics/events` — ingest user event (Nivedita)
+- `GET  /api/v1/analytics/mastery/{user_id}` — mastery scores (Nivedita)
+
+**Mock (PoC):**
+- `POST /api/v1/mock/generate` — deterministic quiz from misconception tags
+- `POST /api/v1/mock/events` — mock event ingestion
 
 ## Event Schema
 
@@ -167,52 +211,54 @@ Key principles:
 ## Development Workflow
 
 ### Phase 1: Environment and Contracts ✅
-- [x] Docker Compose setup
-- [x] Database schema definition
-- [x] Event schema and API contracts
-- [x] Privacy guardrails
-- [x] Backend structure (FastAPI)
-- [x] Frontend structure (Next.js)
+- [x] Docker Compose (PostgreSQL, Redis, MinIO)
+- [x] Database schema, event schema, API contracts
+- [x] FastAPI + Next.js project scaffolding
 
-### Phase 2: Baseline Reproduction (Current)
-**Team Deliverables:**
-- **Alshama**: Deterministic quiz heuristics + Postgres API stub
-- **Gautam**: Minimal lesson renderer + accessibility checks
-- **Bhavya**: Single-level hint loop + re-quiz trigger (flagged)
-- **Nivedita**: Event ingestion + simple latency metrics + dashboard validation
+### Phase 2: Baseline ✅
+- [x] MDX renderer + 10-rule WCAG 2.1 AA checker (Gautam)
+- [x] Deterministic quiz generation from misconception tags (Alshama)
+- [x] Hint loop + re-quiz trigger stubs (Bhavya)
+- [x] Event ingestion + mock analytics (Nivedita)
 
-### Phase 3: Vertical Workflow
-- Integrate renderer with quiz engine and logging
-- Prepare micro lesson packs
-- Finalize lesson-to-quiz handoff contracts
+### Phase 3: Vertical Workflow ✅ (Lesson Designer)
+- [x] AI-powered lesson generation via Gemini
+- [x] Adaptive rendering (scaffold/advanced blocks by mastery score)
+- [x] LessonViewer with section progress, prerequisite graph, quiz integration
+- [x] 5 seed lessons with prerequisite chains
+- [x] 71 backend unit tests
 
-### Phase 4: Closed Loop with Feedback
-- Adaptive hints by error type
-- Initial attention scoring
-- Simple break scheduler
+### Phase 4: Interactive Content ✅ (Lesson Designer)
+- [x] 10 activity types embedded in MDX (FillInBlank, TrueOrFalse, MultipleChoice,
+      DragToSort, MatchPairs, CategorySort, WordBank, NumberLine, CountingGrid, HighlightText)
+- [x] Sentinel-based MDX rendering — activities become live React components inline
+- [x] Misconception-tagged activities feed analytics on wrong answers
+- [x] Quick-insert toolbar in lesson editor
+- [x] 98 backend unit tests (all passing)
 
-### Phase 5: Analytics & Privacy
-- Dashboard views with materialized metrics
-- Privacy review completion
-
-### Phase 6: Verification & Validation
-- Unit and integration tests
-- Usability checks
-- Load testing
-- Demo preparation
+### Upcoming
+- Feedback Agent (Bhavya): adaptive hints by error type
+- Attention Agent (Nivedita): engagement scoring, break scheduler
+- Full mastery data wiring across all agents
 
 ## Testing
 
-### Backend Tests
+### Backend Tests (98 tests)
 ```bash
-cd backend
-pytest tests/ --cov=app
+cd backend && python -m pytest tests/ -v
+# Or with coverage:
+cd backend && python -m pytest tests/ --cov=app
 ```
 
-### Frontend Tests
+### TypeScript Type Check
 ```bash
-cd frontend
-npm test
+cd frontend && npx tsc --noEmit
+```
+
+### Run a specific test file
+```bash
+cd backend && python -m pytest tests/test_mdx_renderer.py -v
+cd backend && python -m pytest tests/test_interactive.py -v
 ```
 
 ## Documentation
