@@ -13,10 +13,25 @@ const navItems = [
 export default function Sidebar() {
   const pathname = usePathname();
 
-  const isActive = (href: string) => {
-    if (href === '/') return pathname === '/';
-    return pathname.startsWith(href);
+  const normalize = (p: string) => {
+    if (p === '/') return '/';
+    return p.replace(/\/+$/, '');
   };
+
+  const currentPath = normalize(pathname);
+
+  const matchesPath = (href: string) => {
+    const h = normalize(href);
+    if (h === '/') return currentPath === '/';
+    return currentPath === h || currentPath.startsWith(`${h}/`);
+  };
+
+  // Only highlight ONE item: the most specific (longest) matching route.
+  const activeHref =
+    navItems
+      .map((i) => i.href)
+      .filter(matchesPath)
+      .sort((a, b) => normalize(b).length - normalize(a).length)[0] ?? null;
 
   return (
     <aside
@@ -44,7 +59,7 @@ export default function Sidebar() {
         <nav aria-label="Main navigation">
           <ul className="space-y-2">
             {navItems.map(({ href, label, icon, color }) => {
-              const active = isActive(href);
+              const active = href === activeHref;
               return (
                 <li key={href}>
                   <Link

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { analyticsAPI } from '@/lib/api';
 
 interface AgentMessage {
   id: string;
@@ -46,8 +47,45 @@ const seedMessages: AgentMessage[] = [
   },
 ];
 
+type AttentionSnapshot = {
+  recorded_at: string;
+  attention_score: number | null;
+  avg_response_latency_ms: number | null;
+  error_rate: number | null;
+};
+
+type AttentionSummary = {
+  user_id: string;
+  recent: AttentionSnapshot[];
+  drift: boolean;
+  recommended_action: string;
+};
+
+const DEFAULT_USER_ID = '11111111-1111-1111-1111-111111111111';
+
 export default function AgentPanel() {
   const [collapsed, setCollapsed] = useState(false);
+  const [userId, setUserId] = useState(DEFAULT_USER_ID);
+  const [attention, setAttention] = useState<AttentionSummary | null>(null);
+  const [attnLoading, setAttnLoading] = useState(false);
+  const [attnError, setAttnError] = useState<string | null>(null);
+
+  const handleRefreshAttention = async () => {
+    setAttnLoading(true);
+    setAttnError(null);
+    try {
+      const res = await analyticsAPI.getAttentionMetrics(userId);
+      setAttention(res.data as AttentionSummary);
+    } catch {
+      setAttnError('Could not load attention. Is the backend running?');
+    } finally {
+      setAttnLoading(false);
+    }
+  };
+
+  const latestScore =
+    attention?.recent.find((s) => s.attention_score !== null && s.attention_score !== undefined)
+      ?.attention_score ?? null;
 
   if (collapsed) {
     return (
@@ -89,6 +127,57 @@ export default function AgentPanel() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
           </svg>
         </button>
+      </div>
+
+      {/* Attention Snapshot */}
+      <div className="bg-gradient-to-br from-violet-50 to-sky-50 rounded-[1.75rem] p-4 border-2 border-violet-100 shadow-sm flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold text-violet-600 uppercase tracking-wide">
+              Focus snapshot
+            </p>
+            <p className="text-sm text-slate-500">Quick view of attention for this learner.</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleRefreshAttention}
+            disabled={attnLoading}
+            className="text-xs px-3 py-1.5 rounded-full font-semibold border border-violet-200 text-violet-700 bg-white hover:bg-violet-50 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {attnLoading ? 'Checking…' : 'Check focus'}
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex-1">
+            <p className="text-[11px] font-medium text-slate-400 mb-0.5">Learner ID</p>
+            <input
+              type="text"
+              value={userId}
+              onChange={(e) => setUserId(e.target.value)}
+              className="w-full text-xs bg-white border border-violet-100 rounded-full px-3 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-violet-300"
+            />
+          </div>
+          <div className="text-right flex-shrink-0">
+            <p className="text-[11px] font-medium text-slate-400 mb-0.5">Attention score</p>
+            <p className="text-2xl font-black text-slate-800">
+              {latestScore === null ? '—' : `${Math.round(latestScore * 100)}%`}
+            </p>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              {attention
+                ? attention.drift
+                  ? `Drift detected · ${attention.recommended_action}`
+                  : `Stable · ${attention.recommended_action}`
+                : 'No data yet'}
+            </p>
+          </div>
+        </div>
+
+        {attnError && (
+          <p className="text-[11px] text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-1.5">
+            {attnError}
+          </p>
+        )}
       </div>
 
       {/* Chat Feed */}
