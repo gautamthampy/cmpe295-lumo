@@ -5,6 +5,8 @@ Coordinates with GeminiService for LLM-based content and mocks other agent inter
 """
 from typing import Dict, Any, Optional, List
 from app.services.gemini_service import gemini_service
+from app.services.socratic_hint_generator import socratic_hint_generator
+from app.services.tone_guardrails import tone_guardrails
 import logging
 
 logger = logging.getLogger(__name__)
@@ -51,9 +53,21 @@ class FeedbackAgent:
         try:
             # 3. Call LLM to generate hint
             if self.gemini.model:
+                # Use Socratic Hint Generator to build advanced prompt
+                # Mocking mastery score as 0.5 for demonstration
+                prompt = socratic_hint_generator.generate_prompt_context(
+                    question_text=question_context["text"],
+                    hint_level=hint_level,
+                    mastery_score=0.5,
+                    misconception_type=misconception_type
+                )
+                
+                # We call the basic generate_feedback since generate_hint in gemini_service 
+                # might not take customized full prompts directly. 
+                # To maintain simplicity with existing gemini_service, we pass the custom prompt as "question"
                 hint_text = await self.gemini.generate_hint(
-                    question=question_context["text"],
-                    student_answer=None, # We might want to pass this if available
+                    question=prompt, 
+                    student_answer=None,
                     hint_level=hint_level
                 )
             else:
@@ -113,6 +127,11 @@ class FeedbackAgent:
                 else:
                     explanation = str(feedback_data)
                     motivation = "Keep going! You're learning."
+                    
+                # Apply Tone Guardrails
+                explanation = tone_guardrails.sanitize_explanation(explanation, correct_answer)
+                motivation = tone_guardrails.sanitize_motivation(motivation)
+                
             else:
                 explanation = f"The correct answer is {correct_answer}. Your answer {user_answer} was incorrect."
                 motivation = "Don't give up! Mistakes help us learn."

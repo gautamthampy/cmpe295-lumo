@@ -14,23 +14,46 @@
     "lint": "next lint"
   },
   "dependencies": {
+<<<<<<< Updated upstream
     "@mdx-js/loader": "^3.1.0",
     "@mdx-js/react": "^3.1.0",
     "@next/mdx": "^15.0.3",
     "autoprefixer": "^10.4.20",
+=======
+<<<<<<< Updated upstream
+    "next": "15.1.0",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "axios": "^1.7.9",
+    "zustand": "^5.0.2",
+    "@mdx-js/react": "^3.1.0",
+    "@next/mdx": "^15.1.0",
+    "@mdx-js/loader": "^3.1.0"
+=======
+    "@mdx-js/loader": "^3.1.0",
+    "@mdx-js/react": "^3.1.0",
+    "@next/mdx": "^15.0.3",
+>>>>>>> Stashed changes
     "axios": "^1.7.9",
     "next": "^15.0.3",
     "postcss": "^8.4.49",
     "react": "^19.0.0-rc.0",
     "react-dom": "^19.0.0-rc.0",
+<<<<<<< Updated upstream
     "tailwindcss": "^3.4.16",
     "zustand": "^5.0.2"
+=======
+    "zustand": "^5.0.2"
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.2.1",
     "@types/json-schema": "^7.0.15",
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
+<<<<<<< Updated upstream
     "eslint": "^9.16.0",
     "eslint-config-next": "^15.0.3",
     "typescript": "^5.7.2"
@@ -53,5 +76,21 @@
     "tailwindcss": "^4",
     "typescript": "^5"
 >>>>>>> main
+=======
+<<<<<<< Updated upstream
+    "typescript": "^5.7.2",
+    "tailwindcss": "^3.4.16",
+    "postcss": "^8.4.49",
+    "autoprefixer": "^10.4.20",
+    "@tailwindcss/typography": "^0.5.15",
+    "eslint": "^9.17.0",
+    "eslint-config-next": "15.1.0"
+=======
+    "eslint": "^9.16.0",
+    "eslint-config-next": "^15.0.3",
+    "tailwindcss": "^4.2.1",
+    "typescript": "^5.7.2"
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
   }
 }
