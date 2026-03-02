@@ -9,7 +9,7 @@ Built as an SJSU CMPE 295 capstone project.
 
 | Agent | Owner | Status |
 |---|---|---|
-| **Lesson Designer** | Gautam | Phase 3 active |
+| **Lesson Designer** | Gautam | Phase 4 complete |
 | Quiz Agent | Alshama | Phase 2 |
 | Feedback Agent | Bhavya | Phase 2 |
 | Attention Agent | Nivedita | Phase 2 |
@@ -51,10 +51,23 @@ main ──── dev ──── gautam/lesson-designer-v{n}
 
 ### What's built and works
 
+- **Interactive Content Generation** (`backend/app/schemas/interactive.py`, `frontend/components/interactive/`)
+  - 10 activity types embedded in MDX via `<!-- interactive -->{ JSON }<!-- /interactive -->` blocks
+  - **Universal:** FillInBlank, TrueOrFalse, MultipleChoice, DragToSort, MatchPairs, CategorySort, WordBank
+  - **Math-specific:** NumberLine (SVG click-to-place), CountingGrid (tap-to-fill array)
+  - **English-specific:** HighlightText (tokenized passage click-to-highlight)
+  - Each activity carries a `misconception_tag` linking to lesson tags for targeted feedback
+  - Sentinel-based rendering preserves `html=False` security in markdown-it-py
+  - InteractiveBlock dispatcher at `frontend/components/interactive/InteractiveBlock.tsx`
+  - All 10 components are WCAG 2.1 AA compliant (labels, keyboard nav, aria-live)
+  - Quick-insert toolbar in `/lessons/editor` for 6 activity template types
+
 - **MDX Renderer** (`backend/app/services/mdx_renderer.py`)
   - `render(mdx)` → semantic HTML via markdown-it-py
   - `render_adaptive(mdx, mastery_score)` → shows/hides `<!-- scaffold -->`/`<!-- advanced -->` blocks
+  - `extract_interactive_activities(mdx)` → returns list of validated activity dicts
   - Strips JSX-style tags, preserves HTML comments
+  - Interactive blocks: replaced with sentinels before markdown-it, swapped for `<div data-interactive="BASE64_JSON">` after
 
 - **Accessibility Checker** (`backend/app/services/accessibility_checker.py`)
   - 10 deterministic WCAG 2.1 AA rules, returns score 0.0–1.0
@@ -83,11 +96,12 @@ main ──── dev ──── gautam/lesson-designer-v{n}
   - `/lessons/analytics` — per-lesson engagement dashboard
 
 - **Components**
-  - `LessonViewer` — accessible sectioned reader, progress tracking
+  - `LessonViewer` — accessible sectioned reader, segment-based rendering (HTML + interactive React components)
   - `LearningPath` — BFS-ordered prerequisite graph
-  - `MdxEditor` — side-by-side MDX + rendered HTML preview via `POST /lessons/preview`
+  - `MdxEditor` — side-by-side MDX + rendered HTML preview with live interactive blocks via `POST /lessons/preview`
+  - `frontend/components/interactive/` — 10 WCAG 2.1 AA activity components + InteractiveBlock dispatcher
 
-- **Tests** — 71 passing unit tests in `backend/tests/` covering renderer, checker, API, schemas
+- **Tests** — 98 passing unit tests in `backend/tests/` (71 original + 27 for interactive block schemas/rendering)
 
 ### Known limitations
 
@@ -105,6 +119,10 @@ main ──── dev ──── gautam/lesson-designer-v{n}
 | 10-rule deterministic checker | Testable, fast, no external a11y service. Rules map directly to WCAG 2.1 AA SCs. |
 | Publish guardrail at score ≥ 0.8 | Enforces accessibility before content reaches students. |
 | scaffold/advanced blocks via HTML comments | Zero MDX spec deviation. Comments are invisible in rendered output. |
+| Interactive blocks via HTML comment delimiters | Consistent with scaffold pattern; no DB migration needed (lives in content_mdx). |
+| Sentinel-based interactive extraction | Replace blocks with text sentinels before markdown-it; html=False security preserved. |
+| Base64 JSON in data-interactive attribute | Avoids quote-escaping issues in HTML attributes; decoded cleanly in React. |
+| JSON → pre-built React components | LLM generates typed JSON; frontend renders known components. No eval(), no XSS. |
 | Two-pass seeding | Avoids FK order dependency; `db.flush()` gets IDs before wiring prerequisites. |
 | Demo analytics from seeded RNG | Stable across requests (seeded from UUID), realistic-looking values for demo. |
 
@@ -148,7 +166,7 @@ GEMINI_API_KEY=...   # enables real AI generation; stub used without it
 ## Test Commands
 
 ```bash
-# Backend unit tests (71 tests)
+# Backend unit tests (98 tests)
 cd backend && pytest backend/tests/ -v
 
 # TypeScript type check
