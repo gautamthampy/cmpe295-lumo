@@ -1,18 +1,6 @@
-/**
- * Lesson Editor — create/edit lessons with AI-assisted content generation.
- *
- * Features:
- *   - "Generate with AI" button: calls POST /lessons/generate with a topic prompt
- *   - MDX textarea with live preview via MdxEditor
- *   - Accessibility score shown after generation
- *   - Save as draft or publish (requires score >= 80%)
- *
- * WCAG 2.1 AA: all form controls have explicit labels, status updates use aria-live.
- */
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import MdxEditor from '@/components/lessons/MdxEditor';
 import { lessonsAPI } from '@/lib/api';
@@ -133,7 +121,6 @@ export default function LessonEditorPage() {
     setSaving(true);
     setError(null);
     try {
-      // First create if not yet saved
       let lessonId = genResult?.saved_lesson_id;
       if (!lessonId) {
         const createRes = await lessonsAPI.create({
@@ -158,145 +145,132 @@ export default function LessonEditorPage() {
   };
 
   return (
-    <main className="min-h-screen" aria-label="Lesson editor">
-      <div className="max-w-6xl mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <Link
-            href="/lessons"
-            className="text-sm font-medium text-slate-400 hover:text-slate-600 transition-colors"
-          >
-            ← Back to Lessons
-          </Link>
-          <h1 className="text-3xl font-bold mt-3">
-            <span className="text-gradient">Lesson Editor</span>
-          </h1>
-          <p className="text-slate-500 text-sm mt-1">
-            Create a new lesson manually or generate content with AI, then review the accessibility score before publishing.
-          </p>
-        </div>
-
-        {/* Status banners */}
-        {error && (
-          <div role="alert" className="mb-4 glass rounded-xl px-4 py-3 text-sm text-red-600 border border-red-200/50">
-            {error}
-          </div>
-        )}
-        {successMessage && (
-          <div role="status" aria-live="polite" className="mb-4 glass rounded-xl px-4 py-3 text-sm text-emerald-700 font-medium border border-emerald-200/50">
-            {successMessage}
-          </div>
-        )}
-
-        {/* Topic / metadata form */}
-        <div className="glass rounded-2xl p-6 mb-6">
-          <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-widest mb-4">Lesson Metadata</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-            <div className="sm:col-span-2">
-              <label htmlFor="topic-input" className="block text-sm font-medium text-slate-700 mb-1">
-                Topic / Title
-              </label>
-              <input
-                id="topic-input"
-                type="text"
-                value={form.topic}
-                onChange={(e) => setForm((f) => ({ ...f, topic: e.target.value, title: e.target.value }))}
-                placeholder="e.g. Adding Fractions with Unlike Denominators"
-                className="w-full px-3 py-2 bg-white/70 border border-white/50 rounded-xl text-sm focus:outline-none focus:ring-2 text-slate-800 placeholder-slate-400"
-                style={{ '--tw-ring-color': 'var(--color-primary-base)' } as React.CSSProperties}
-              />
-            </div>
-            <div>
-              <label htmlFor="grade-input" className="block text-sm font-medium text-slate-700 mb-1">
-                Grade Level
-              </label>
-              <select
-                id="grade-input"
-                value={form.gradeLevel}
-                onChange={(e) => setForm((f) => ({ ...f, gradeLevel: Number(e.target.value) }))}
-                className="w-full px-3 py-2 bg-white/70 border border-white/50 rounded-xl text-sm focus:outline-none focus:ring-2 text-slate-800"
-                style={{ '--tw-ring-color': 'var(--color-primary-base)' } as React.CSSProperties}
-              >
-                {[1, 2, 3, 4, 5, 6].map((g) => (
-                  <option key={g} value={g}>Grade {g}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Generate button */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleGenerate}
-              disabled={generating || !form.topic.trim()}
-              className="btn-primary px-5 py-2 rounded-xl disabled:opacity-40"
-              aria-label="Generate lesson content using AI"
-            >
-              {generating ? 'Generating…' : '✨ Generate with AI'}
-            </button>
-            {genResult && (
-              <span className="text-sm text-slate-600">
-                Accessibility score:{' '}
-                <strong className={genResult.accessibility_score >= 0.8 ? 'text-emerald-700' : 'text-amber-600'}>
-                  {Math.round(genResult.accessibility_score * 100)}%
-                </strong>
-                <span className="text-slate-400 ml-1">
-                  {genResult.gemini_used ? '(Gemini)' : '(stub template)'}
-                </span>
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* MDX Editor */}
-        <div className="glass rounded-2xl p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-widest">Content (MDX)</h2>
-            <div className="flex items-center gap-2 flex-wrap justify-end">
-              <span className="text-xs text-slate-400 mr-1">Insert activity:</span>
-              {ACTIVITY_TEMPLATES.map(({ label, template }) => (
-                <button
-                  key={label}
-                  onClick={() => setForm((f) => ({ ...f, mdxContent: f.mdxContent + template }))}
-                  className="px-2 py-1 text-xs rounded-lg glass border border-white/30 text-slate-600 hover:text-indigo-700 hover:border-indigo-300 transition-colors"
-                  aria-label={`Insert ${label} activity template`}
-                >
-                  + {label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <MdxEditor
-            value={form.mdxContent}
-            onChange={(mdx) => setForm((f) => ({ ...f, mdxContent: mdx }))}
-            gradeLevel={form.gradeLevel}
-          />
-        </div>
-
-        {/* Action buttons */}
-        <div className="flex items-center gap-3 justify-end">
-          <button
-            onClick={handleSaveDraft}
-            disabled={saving || !form.mdxContent.trim()}
-            className="px-5 py-2 glass rounded-xl text-sm font-semibold text-slate-700 hover:shadow-md transition-all disabled:opacity-40"
-          >
-            {saving ? 'Saving…' : 'Save Draft'}
-          </button>
-          <button
-            onClick={handlePublish}
-            disabled={saving || !form.mdxContent.trim()}
-            className="btn-primary px-5 py-2 rounded-xl disabled:opacity-40"
-            aria-label="Publish lesson — requires accessibility score ≥ 80%"
-          >
-            {saving ? 'Publishing…' : 'Publish Lesson'}
-          </button>
-        </div>
-
-        {/* Accessibility constraints reminder */}
-        <p className="text-xs text-slate-400 text-right mt-2">
-          Publishing requires accessibility score ≥ 80% (WCAG 2.1 AA guardrail)
+    <>
+      {/* Header */}
+      <header className="bg-white rounded-[1.75rem] w-full mb-5 p-5 px-8 shadow-sm border-2 border-violet-50">
+        <h1 className="text-2xl font-black">
+          <span className="text-gradient">Lesson Editor</span> ✏️
+        </h1>
+        <p className="text-slate-500 text-sm mt-0.5">
+          Create a new lesson manually or generate content with AI
         </p>
+      </header>
+
+      {/* Banners */}
+      {error && (
+        <div role="alert" className="mb-4 bg-red-50 rounded-2xl px-5 py-3 text-sm text-red-600 font-medium border border-red-200">
+          {error}
+        </div>
+      )}
+      {successMessage && (
+        <div role="status" aria-live="polite" className="mb-4 bg-emerald-50 rounded-2xl px-5 py-3 text-sm text-emerald-700 font-medium border border-emerald-200">
+          {successMessage}
+        </div>
+      )}
+
+      {/* Metadata */}
+      <div className="bg-white rounded-[1.75rem] p-6 mb-4 border-2 border-violet-50 shadow-sm">
+        <h2 className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-4">Lesson Metadata</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+          <div className="sm:col-span-2">
+            <label htmlFor="topic-input" className="block text-sm font-semibold text-slate-700 mb-1">
+              Topic / Title
+            </label>
+            <input
+              id="topic-input"
+              type="text"
+              value={form.topic}
+              onChange={(e) => setForm((f) => ({ ...f, topic: e.target.value, title: e.target.value }))}
+              placeholder="e.g. Adding Fractions with Unlike Denominators"
+              className="w-full px-4 py-2.5 bg-violet-50/60 border border-violet-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 text-slate-800 placeholder-slate-400"
+            />
+          </div>
+          <div>
+            <label htmlFor="grade-input" className="block text-sm font-semibold text-slate-700 mb-1">
+              Grade Level
+            </label>
+            <select
+              id="grade-input"
+              value={form.gradeLevel}
+              onChange={(e) => setForm((f) => ({ ...f, gradeLevel: Number(e.target.value) }))}
+              className="w-full px-4 py-2.5 bg-violet-50/60 border border-violet-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 text-slate-800"
+            >
+              {[1, 2, 3, 4, 5, 6].map((g) => (
+                <option key={g} value={g}>Grade {g}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleGenerate}
+            disabled={generating || !form.topic.trim()}
+            className="btn-primary px-6 py-2.5 text-sm disabled:opacity-40"
+            aria-label="Generate lesson content using AI"
+          >
+            {generating ? 'Generating…' : '✨ Generate with AI'}
+          </button>
+          {genResult && (
+            <span className="text-sm text-slate-600">
+              A11y score:{' '}
+              <strong className={genResult.accessibility_score >= 0.8 ? 'text-emerald-600' : 'text-amber-600'}>
+                {Math.round(genResult.accessibility_score * 100)}%
+              </strong>
+              <span className="text-slate-400 ml-1 text-xs">
+                {genResult.gemini_used ? '(Gemini)' : '(stub template)'}
+              </span>
+            </span>
+          )}
+        </div>
       </div>
-    </main>
+
+      {/* MDX Editor */}
+      <div className="bg-white rounded-[1.75rem] p-6 mb-4 flex-1 border-2 border-violet-50 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-bold text-slate-500 uppercase tracking-widest">Content (MDX)</h2>
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            <span className="text-xs text-slate-400 mr-1">Insert:</span>
+            {ACTIVITY_TEMPLATES.map(({ label, template }) => (
+              <button
+                key={label}
+                onClick={() => setForm((f) => ({ ...f, mdxContent: f.mdxContent + template }))}
+                className="px-2.5 py-1 text-xs rounded-full bg-violet-50 border border-violet-100 text-violet-600 hover:bg-violet-100 hover:text-violet-700 transition-colors font-semibold"
+                aria-label={`Insert ${label} activity template`}
+              >
+                + {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <MdxEditor
+          value={form.mdxContent}
+          onChange={(mdx) => setForm((f) => ({ ...f, mdxContent: mdx }))}
+          gradeLevel={form.gradeLevel}
+        />
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-3 justify-end mb-2">
+        <button
+          onClick={handleSaveDraft}
+          disabled={saving || !form.mdxContent.trim()}
+          className="btn-secondary text-sm px-5 py-2.5 disabled:opacity-40"
+        >
+          {saving ? 'Saving…' : 'Save Draft'}
+        </button>
+        <button
+          onClick={handlePublish}
+          disabled={saving || !form.mdxContent.trim()}
+          className="btn-primary text-sm px-6 py-2.5 disabled:opacity-40"
+          aria-label="Publish lesson — requires accessibility score ≥ 80%"
+        >
+          {saving ? 'Publishing…' : 'Publish Lesson'}
+        </button>
+      </div>
+      <p className="text-xs text-slate-400 text-right">
+        Publishing requires accessibility score ≥ 80% (WCAG 2.1 AA guardrail)
+      </p>
+    </>
   );
 }

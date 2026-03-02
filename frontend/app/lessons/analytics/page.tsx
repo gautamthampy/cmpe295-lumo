@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
 import { lessonsAPI } from '@/lib/api';
 
 interface LessonMetric {
@@ -34,10 +33,10 @@ function ScoreBadge({ value, label }: { value: number; label: string }) {
       : 'text-red-700 bg-red-50 border-red-200';
   return (
     <div className="text-center">
-      <span className={`text-xs px-2 py-0.5 rounded-full border font-semibold ${color}`}>
+      <span className={`text-xs px-2.5 py-0.5 rounded-full border font-bold ${color}`}>
         {pct}%
       </span>
-      <p className="text-xs text-slate-400 mt-1">{label}</p>
+      <p className="text-xs text-slate-400 mt-1 font-medium">{label}</p>
     </div>
   );
 }
@@ -56,24 +55,19 @@ export default function LessonAnalyticsPage() {
   }, []);
 
   return (
-    <main className="min-h-screen" aria-label="Lesson analytics dashboard">
-      <div className="max-w-5xl mx-auto px-4 py-10">
-        {/* Header */}
-        <div className="mb-8">
-          <Link
-            href="/lessons"
-            className="text-sm font-medium text-slate-400 hover:text-slate-600 transition-colors"
-          >
-            ← Back to Lesson Library
-          </Link>
-          <h1 className="text-3xl font-bold mt-3">
-            <span className="text-gradient">Analytics Dashboard</span>
-          </h1>
-          <p className="text-slate-500 text-sm mt-1">
-            Per-lesson engagement metrics · WCAG 2.1 AA scores · Quiz pass rates
-          </p>
-        </div>
+    <>
+      {/* Header */}
+      <header className="bg-white rounded-[1.75rem] w-full mb-5 p-5 px-8 shadow-sm border-2 border-violet-50">
+        <h1 className="text-2xl font-black">
+          <span className="text-gradient">Analytics Dashboard</span> 📊
+        </h1>
+        <p className="text-slate-500 text-sm mt-0.5">
+          Per-lesson engagement metrics · WCAG 2.1 AA scores · Quiz pass rates
+        </p>
+      </header>
 
+      {/* Content */}
+      <div className="bg-white rounded-[1.75rem] flex-1 p-6 overflow-y-auto shadow-sm border-2 border-violet-50">
         {loading && (
           <p className="text-slate-400 text-center py-20" role="status" aria-live="polite">
             Loading analytics…
@@ -81,88 +75,73 @@ export default function LessonAnalyticsPage() {
         )}
 
         {error && (
-          <div role="alert" className="glass rounded-2xl p-6 text-center border border-red-200/50">
+          <div role="alert" className="bg-red-50 rounded-2xl p-6 text-center border border-red-200">
             <p className="text-red-600 font-medium">{error}</p>
           </div>
         )}
 
         {data && (
           <>
-            {/* Summary stats */}
+            {/* Summary */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-8">
-              <div className="glass-card text-center">
-                <p className="text-3xl font-bold text-gradient">{data.total_lessons}</p>
-                <p className="text-xs text-slate-500 mt-1 font-medium uppercase tracking-wide">Active Lessons</p>
-              </div>
-              <div className="glass-card text-center">
-                <p
-                  className="text-3xl font-bold"
-                  style={{ color: data.avg_accessibility_score >= 0.8 ? 'var(--color-primary-base)' : '#d97706' }}
+              {[
+                { value: data.total_lessons, label: 'Active Lessons', icon: '📚', gradient: 'from-violet-400 to-purple-300' },
+                { value: `${Math.round(data.avg_accessibility_score * 100)}%`, label: 'Avg A11y Score', icon: '♿', gradient: 'from-sky-400 to-cyan-300' },
+                { value: `${Math.round((data.lessons.reduce((a, l) => a + l.quiz_pass_rate, 0) / (data.lessons.length || 1)) * 100)}%`, label: 'Avg Quiz Pass', icon: '🎯', gradient: 'from-amber-300 to-yellow-200' },
+              ].map((stat, i) => (
+                <div
+                  key={stat.label}
+                  className="bg-white rounded-[1.75rem] p-5 border-2 border-violet-50 shadow-sm animate-fade-up flex items-center gap-4"
+                  style={{ animationDelay: `${i * 60}ms` }}
                 >
-                  {Math.round(data.avg_accessibility_score * 100)}%
-                </p>
-                <p className="text-xs text-slate-500 mt-1 font-medium uppercase tracking-wide">Avg A11y Score</p>
-              </div>
-              <div className="glass-card text-center col-span-2 sm:col-span-1">
-                <p className="text-3xl font-bold" style={{ color: 'var(--color-secondary-base)' }}>
-                  {Math.round(
-                    (data.lessons.reduce((a, l) => a + l.quiz_pass_rate, 0) / (data.lessons.length || 1)) * 100
-                  )}%
-                </p>
-                <p className="text-xs text-slate-500 mt-1 font-medium uppercase tracking-wide">Avg Quiz Pass Rate</p>
-              </div>
+                  <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${stat.gradient} flex items-center justify-center text-xl shadow-sm flex-shrink-0`}>
+                    {stat.icon}
+                  </div>
+                  <div>
+                    <p className="text-2xl font-black text-slate-800">{stat.value}</p>
+                    <p className="text-xs text-slate-500 font-semibold uppercase tracking-wide">{stat.label}</p>
+                  </div>
+                </div>
+              ))}
             </div>
 
             {/* Per-lesson cards */}
-            <ul className="space-y-4" role="list" aria-label="Lesson metrics">
+            <ul className="space-y-3" role="list" aria-label="Lesson metrics">
               {data.lessons.map((lesson) => (
                 <li key={lesson.lesson_id} role="listitem">
                   <div className="glass-card">
                     <div className="flex flex-col sm:flex-row sm:items-start gap-4">
-                      {/* Title block */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <span
-                            className="text-xs font-semibold uppercase tracking-wide"
-                            style={{ color: 'var(--color-primary-base)' }}
-                          >
+                          <span className="tag-pill text-[10px]">
                             {lesson.subject} · Gr. {lesson.grade_level}
                           </span>
-                          <span className="text-xs text-slate-400">·</span>
                           <span className="text-xs text-slate-400">{lesson.total_views} views</span>
                         </div>
                         <h2 className="font-bold text-slate-800 leading-snug">{lesson.title}</h2>
                         {lesson.misconception_tags.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-2">
                             {lesson.misconception_tags.map((tag) => (
-                              <span
-                                key={tag}
-                                className="text-xs px-1.5 py-0.5 rounded-full"
-                                style={{ background: 'rgba(107,102,232,0.08)', color: 'var(--color-primary-dark)' }}
-                              >
-                                {tag}
-                              </span>
+                              <span key={tag} className="tag-pill text-[10px]">{tag}</span>
                             ))}
                           </div>
                         )}
                       </div>
 
-                      {/* Metrics */}
                       <div className="flex items-center gap-5 flex-shrink-0">
                         <ScoreBadge value={lesson.accessibility_score} label="A11y" />
                         <ScoreBadge value={lesson.completion_rate} label="Completion" />
                         <ScoreBadge value={lesson.quiz_pass_rate} label="Quiz Pass" />
                         <div className="text-center">
                           <p className="text-sm font-bold text-slate-700">{lesson.avg_time_minutes}m</p>
-                          <p className="text-xs text-slate-400 mt-1">Avg Time</p>
+                          <p className="text-xs text-slate-400 mt-1 font-medium">Avg Time</p>
                         </div>
                       </div>
                     </div>
 
-                    {/* A11y issues bar */}
                     {lesson.issues_count > 0 && (
-                      <div className="mt-3 pt-3 border-t border-white/30">
-                        <p className="text-xs text-amber-600 font-medium">
+                      <div className="mt-3 pt-3 border-t border-violet-50">
+                        <p className="text-xs text-amber-600 font-bold">
                           ⚠ {lesson.issues_count} accessibility issue{lesson.issues_count > 1 ? 's' : ''} — review before publishing
                         </p>
                       </div>
@@ -174,6 +153,6 @@ export default function LessonAnalyticsPage() {
           </>
         )}
       </div>
-    </main>
+    </>
   );
 }
