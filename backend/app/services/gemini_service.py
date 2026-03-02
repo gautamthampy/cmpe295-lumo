@@ -2,6 +2,7 @@
 Google Gemini LLM service wrapper.
 Ready for Phase 2 integration into quiz, feedback, and lesson endpoints.
 """
+from functools import lru_cache
 from typing import Any, Optional
 import logging
 
@@ -62,7 +63,7 @@ RULES:
 
 
 class GeminiService:
-    def __init__(self, api_key: str, model: str = "gemini-2.0-flash"):
+    def __init__(self, api_key: str, model: str = "gemini-3.1-pro-preview"):
         self.api_key = api_key
         self.model = model
         self._client = None
@@ -237,12 +238,13 @@ and remember: every expert started as a beginner!
 """
 
 
-# Module-level singleton
-_service: Optional["GeminiService"] = None
+@lru_cache(maxsize=1)
+def get_gemini_service() -> "GeminiService":
+    """Return a cached GeminiService instance seeded from application settings.
 
-
-def get_gemini_service(api_key: str = "", model: str = "gemini-2.0-flash") -> "GeminiService":
-    global _service
-    if _service is None:
-        _service = GeminiService(api_key=api_key, model=model)
-    return _service
+    The API key and model are read from settings (which load backend/.env), so
+    there is no need to pass them at the call site.
+    """
+    from app.core.config import get_settings
+    s = get_settings()
+    return GeminiService(api_key=s.GEMINI_API_KEY, model=s.GEMINI_MODEL)

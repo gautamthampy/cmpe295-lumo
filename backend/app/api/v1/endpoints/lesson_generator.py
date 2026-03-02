@@ -6,7 +6,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 
-from app.core.config import get_settings
 from app.core.database import get_db
 from app.models.lesson import Lesson
 from app.schemas.lesson import LessonResponse, AccessibilityIssue
@@ -54,8 +53,7 @@ async def generate_lesson(
     If GEMINI_API_KEY is not set, returns a stub lesson template so the endpoint
     remains functional for demos without an API key.
     """
-    settings = get_settings()
-    gemini = get_gemini_service(api_key=settings.gemini_api_key or "")
+    gemini = get_gemini_service()
 
     # Generate MDX content
     mdx_content = await gemini.generate_lesson_content(
@@ -63,7 +61,7 @@ async def generate_lesson(
         grade_level=payload.grade_level,
         subject=payload.subject,
     )
-    gemini_used = bool(settings.gemini_api_key and gemini._client is not None)
+    gemini_used = gemini._client is not None
 
     # Validate content accessibility
     renderer = get_renderer()
