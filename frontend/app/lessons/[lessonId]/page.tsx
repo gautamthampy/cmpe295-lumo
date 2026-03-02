@@ -7,30 +7,22 @@ import LessonViewer, { type LessonSection } from '@/components/lessons/LessonVie
 import { lessonsAPI, mockAPI } from '@/lib/api';
 import type { RenderedLessonResponse, QuizResponse, AccessibilityIssue, ActivityResult } from '@/lib/types';
 
-// No auth in PoC — hardcoded demo user
 const DEMO_USER_ID = '00000000-0000-0000-0000-000000000001';
 const DEMO_SESSION_ID = '00000000-0000-0000-0000-000000000002';
-const QUIZ_PASS_THRESHOLD = 0.7; // 70% correct to pass
+const QUIZ_PASS_THRESHOLD = 0.7;
 
-/**
- * Parse backend-rendered HTML into sections by splitting on <h2> tags.
- * The backend (MdxRendererService) produces standard CommonMark HTML, so
- * section headings are always <h2> elements.
- */
 function parseSections(html: string): LessonSection[] {
-  // Split on opening <h2> tags (may have attributes like id="...")
   const parts = html.split(/(<h2[^>]*>)/);
   const sections: LessonSection[] = [];
 
   for (let i = 1; i < parts.length; i += 2) {
-    const openTag = parts[i]; // e.g. <h2> or <h2 id="what-is-a-fraction">
     const rest = parts[i + 1] ?? '';
     const closingIdx = rest.indexOf('</h2>');
     if (closingIdx === -1) continue;
 
     const titleHtml = rest.substring(0, closingIdx);
     const titleText = titleHtml.replace(/<[^>]+>/g, '').trim();
-    const bodyHtml = rest.substring(closingIdx + 5).trim(); // after </h2>
+    const bodyHtml = rest.substring(closingIdx + 5).trim();
 
     sections.push({
       id: titleText.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
@@ -40,7 +32,6 @@ function parseSections(html: string): LessonSection[] {
     });
   }
 
-  // Fallback: if no <h2> splits found, treat whole HTML as one section
   if (sections.length === 0 && html.trim()) {
     sections.push({ id: 'content', title: 'Lesson Content', content: html, completed: false });
   }
@@ -141,66 +132,69 @@ export default function LessonDetailPage() {
     setLessonDone(true);
   };
 
-  const handleLessonComplete = () => {
-    // Called by LessonViewer when the student navigates through all sections
-  };
-
-  // --- Loading / error states ---
+  const handleLessonComplete = () => {};
 
   if (loading) {
     return (
-      <main className="min-h-screen flex items-center justify-center" aria-label="Loading lesson">
-        <p className="text-slate-400 text-lg" role="status" aria-live="polite">
-          Loading lesson…
-        </p>
-      </main>
+      <div className="flex-1 flex items-center justify-center">
+        <p className="text-slate-400 text-lg" role="status" aria-live="polite">Loading lesson…</p>
+      </div>
     );
   }
 
   if (error || !rendered) {
     return (
-      <main className="min-h-screen flex items-center justify-center" aria-label="Lesson error">
-        <div className="glass rounded-2xl p-8 text-center max-w-sm" role="alert">
+      <div className="flex-1 flex items-center justify-center">
+        <div className="bg-white rounded-2xl p-8 text-center max-w-sm border-2 border-red-100 shadow-sm" role="alert">
           <p className="text-red-600 font-medium mb-4">{error ?? 'Lesson not found'}</p>
-          <Link href="/lessons" className="text-sm font-medium" style={{ color: 'var(--color-primary-base)' }}>
+          <Link href="/lessons" className="text-sm font-bold text-violet-600 hover:text-violet-800">
             ← Back to Lessons
           </Link>
         </div>
-      </main>
+      </div>
     );
   }
 
   return (
-    <div>
-      {/* Back link */}
-      <div className="max-w-5xl mx-auto px-4 pt-6">
-        <Link
-          href="/lessons"
-          className="text-sm font-medium text-slate-400 hover:text-slate-600 transition-colors"
-        >
-          ← Back to Lessons
-        </Link>
+    <div className="flex flex-col flex-1 overflow-y-auto">
+      {/* Lesson header */}
+      <header className="bg-white rounded-[1.75rem] w-full mb-4 p-4 px-8 flex justify-between items-center shadow-sm border-2 border-violet-50">
+        <div>
+          <Link href="/lessons" className="text-xs font-semibold text-violet-500 hover:text-violet-700 transition-colors">
+            ← Lesson Library
+          </Link>
+          <h1 className="text-lg font-bold text-slate-800 mt-1">
+            {rendered.quiz_context.subject}: {rendered.misconception_tags[0]?.replace(/-/g, ' ')}
+          </h1>
+        </div>
+        <div className="flex items-center gap-3">
+          {rendered.accessibility_score !== undefined && (
+            <span className="tag-pill">
+              A11y {Math.round(rendered.accessibility_score * 100)}%
+            </span>
+          )}
+        </div>
+      </header>
+
+      {/* LessonViewer */}
+      <div className="flex-1">
+        <LessonViewer
+          lessonId={rendered.lesson_id}
+          title={rendered.quiz_context.subject + ': ' + rendered.misconception_tags[0]?.replace(/-/g, ' ')}
+          subject={rendered.quiz_context.subject}
+          gradeLevel={rendered.quiz_context.grade_level}
+          sections={sections}
+          estimatedMinutes={rendered.estimated_time_minutes}
+          accessibilityScore={rendered.accessibility_score}
+          interactiveActivities={rendered.interactive_activities ?? []}
+          onComplete={handleLessonComplete}
+          onActivityResult={(r) => { activityResults.current.push(r); }}
+        />
       </div>
 
-      {/* LessonViewer — full WCAG 2.1 AA component */}
-      <LessonViewer
-        lessonId={rendered.lesson_id}
-        title={rendered.quiz_context.subject + ': ' + rendered.misconception_tags[0]?.replace(/-/g, ' ')}
-        subject={rendered.quiz_context.subject}
-        gradeLevel={rendered.quiz_context.grade_level}
-        sections={sections}
-        estimatedMinutes={rendered.estimated_time_minutes}
-        accessibilityScore={rendered.accessibility_score}
-        interactiveActivities={rendered.interactive_activities ?? []}
-        onComplete={handleLessonComplete}
-        onActivityResult={(r) => { activityResults.current.push(r); }}
-      />
-
       {/* Quiz section */}
-      <div className="max-w-5xl mx-auto px-4 py-6">
-        <div className="glass rounded-2xl p-6">
-
-          {/* Accessibility score details */}
+      <div className="px-2 py-6">
+        <div className="bg-white rounded-[1.75rem] p-6 border-2 border-violet-50 shadow-sm">
           {rendered.accessibility_issues.length > 0 && (
             <details className="mb-6">
               <summary className="cursor-pointer text-sm font-medium text-slate-500 hover:text-slate-700">
@@ -211,7 +205,7 @@ export default function LessonDetailPage() {
                 {rendered.accessibility_issues.map((issue: AccessibilityIssue) => (
                   <li
                     key={issue.rule}
-                    className={`text-xs px-3 py-2 rounded-lg ${
+                    className={`text-xs px-3 py-2 rounded-xl ${
                       issue.severity === 'error'
                         ? 'bg-red-50 text-red-700'
                         : 'bg-amber-50 text-amber-700'
@@ -224,45 +218,36 @@ export default function LessonDetailPage() {
             </details>
           )}
 
-          {/* Misconception tags */}
           <div className="mb-6">
-            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">
               Content Tags → Quiz Agent
             </h3>
             <div className="flex flex-wrap gap-2">
               {rendered.misconception_tags.map((tag) => (
-                <span
-                  key={tag}
-                  className="px-3 py-1.5 rounded-full text-sm font-medium"
-                  style={{ background: 'rgba(107,102,232,0.1)', color: 'var(--color-primary-dark)' }}
-                >
-                  {tag}
-                </span>
+                <span key={tag} className="tag-pill">{tag}</span>
               ))}
             </div>
           </div>
 
-          {/* Quiz trigger */}
           {!quizResult && (
             <button
               onClick={handleStartQuiz}
               disabled={quizLoading}
-              className="btn-primary w-full py-3 rounded-xl"
+              className="btn-primary w-full py-3"
               aria-label="Generate quiz for this lesson"
             >
-              {quizLoading ? 'Generating Quiz…' : 'Start Quiz (Mock)'}
+              {quizLoading ? 'Generating Quiz…' : 'Start Quiz 🎯'}
             </button>
           )}
 
-          {/* Quiz questions */}
           {quizResult && (
-            <div className="mt-2 border-t border-white/30 pt-6" aria-live="polite">
-              <h3 className="text-lg font-semibold text-slate-800 mb-5">
+            <div className="mt-2 border-t border-violet-50 pt-6" aria-live="polite">
+              <h3 className="text-lg font-bold text-slate-800 mb-5">
                 Quiz — {quizResult.questions.length} Questions
               </h3>
-              <ol className="space-y-6">
+              <ol className="space-y-5">
                 {quizResult.questions.map((q, i) => (
-                  <li key={q.question_id} className="glass rounded-xl p-5">
+                  <li key={q.question_id} className="bg-violet-50/50 rounded-2xl p-5 border border-violet-100">
                     <p className="font-semibold text-slate-800 mb-4">
                       {i + 1}. {q.question_text}
                     </p>
@@ -275,16 +260,16 @@ export default function LessonDetailPage() {
                           return (
                             <label
                               key={opt.option_id}
-                              className={`flex items-start gap-3 px-4 py-3 rounded-lg border cursor-pointer transition-colors ${
+                              className={`flex items-start gap-3 px-4 py-3 rounded-xl border-2 cursor-pointer transition-all ${
                                 quizSubmitted
                                   ? isCorrect
                                     ? 'bg-emerald-50 border-emerald-300 text-emerald-800 font-medium'
                                     : selected
                                     ? 'bg-red-50 border-red-200 text-red-700'
-                                    : 'bg-white/50 border-white/30 text-slate-400'
+                                    : 'bg-white border-slate-100 text-slate-400'
                                   : selected
-                                  ? 'bg-white border-white/50 shadow-sm'
-                                  : 'bg-white/50 border-white/30 hover:bg-white/70'
+                                  ? 'bg-white border-violet-300 shadow-sm'
+                                  : 'bg-white border-slate-100 hover:border-violet-200'
                               }`}
                             >
                               <input
@@ -299,10 +284,10 @@ export default function LessonDetailPage() {
                                     [q.question_id]: opt.option_id,
                                   }))
                                 }
-                                className="mt-0.5"
+                                className="mt-0.5 accent-violet-600"
                               />
                               <span className="text-sm flex-1">
-                                <span className="font-mono mr-1">
+                                <span className="font-mono mr-1 text-violet-400">
                                   {opt.option_id.toUpperCase()}.
                                 </span>
                                 {opt.option_text}
@@ -321,18 +306,17 @@ export default function LessonDetailPage() {
                 ))}
               </ol>
 
-              {/* Submit / results */}
               {!quizSubmitted ? (
                 <button
                   onClick={handleSubmitQuiz}
                   disabled={Object.keys(selectedAnswers).length < quizResult.questions.length}
-                  className="btn-primary mt-6 w-full py-3 rounded-xl disabled:opacity-40"
+                  className="btn-primary mt-6 w-full py-3 disabled:opacity-40"
                 >
                   Submit Quiz
                 </button>
               ) : (
-                <div className="mt-6 p-5 glass rounded-xl text-center" aria-live="assertive">
-                  <p className="font-semibold text-lg text-slate-800">
+                <div className="mt-6 p-5 bg-violet-50 rounded-2xl text-center border border-violet-100" aria-live="assertive">
+                  <p className="font-bold text-lg text-slate-800">
                     {quizResult.questions.filter((q) => {
                       const opt = q.options.find((o) => o.option_id === selectedAnswers[q.question_id]);
                       return opt && !opt.is_distractor;
@@ -342,7 +326,7 @@ export default function LessonDetailPage() {
                   {lessonDone && rendered.next_lesson_id && (
                     <Link
                       href={`/lessons/${rendered.next_lesson_id}`}
-                      className="btn-primary mt-3 inline-block px-6 py-2 rounded-xl"
+                      className="btn-primary mt-3 inline-block px-6 py-2"
                     >
                       Next Lesson →
                     </Link>

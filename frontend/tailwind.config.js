@@ -9,14 +9,30 @@ module.exports = {
   darkMode: 'class',
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['var(--font-sans)', 'Outfit', 'sans-serif'],
+      },
       colors: {
-        brand: {
-          50: '#f0fdf4',
-          100: '#dcfce7',
-          500: '#22c55e',
-          600: '#16a34a',
-          700: '#15803d',
+        primary: {
+          light: '#a89cf8',
+          DEFAULT: '#7c6fea',
+          dark: '#5b4fc7',
         },
+        secondary: {
+          light: '#9be8ff',
+          DEFAULT: '#4cc9f0',
+          dark: '#2da8d0',
+        },
+        accent: {
+          pink: '#ff7eb3',
+          gold: '#ffd166',
+          mint: '#6fdfaf',
+        },
+        cream: '#fefbf4',
+        lavender: '#f0ecff',
+      },
+      borderRadius: {
+        '4xl': '1.75rem',
       },
     },
   },
