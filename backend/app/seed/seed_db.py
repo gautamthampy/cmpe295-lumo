@@ -9,12 +9,60 @@ import sys
 import uuid
 from datetime import datetime, timezone
 
+from sqlalchemy import inspect, text
+
 from app.core.database import SessionLocal
 from app.models.lesson import Lesson
 from app.seed.lesson_data import SEED_LESSONS
 
 
+def ensure_lessons_schema() -> None:
+    """
+    Backfill legacy DBs to match the current Lesson model.
+    """
+    db = SessionLocal()
+    try:
+        table_inspector = inspect(db.bind)
+        existing_columns = {
+            column["name"]
+            for column in table_inspector.get_columns("lessons", schema="content")
+        }
+
+        backfill_columns = {
+            "prerequisites": "UUID[] NOT NULL DEFAULT '{}'::UUID[]",
+            "status": "VARCHAR(20) NOT NULL DEFAULT 'draft'",
+            "version": "INTEGER NOT NULL DEFAULT 1",
+            "parent_version_id": (
+                "UUID REFERENCES content.lessons(lesson_id) ON DELETE SET NULL"
+            ),
+            "created_at": "TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+            "updated_at": "TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+        }
+
+        added_columns: list[str] = []
+        for column_name, column_sql in backfill_columns.items():
+            if column_name not in existing_columns:
+                db.execute(
+                    text(
+                        f"""
+                        ALTER TABLE content.lessons
+                        ADD COLUMN {column_name} {column_sql}
+                        """
+                    )
+                )
+                added_columns.append(column_name)
+
+        if added_columns:
+            db.commit()
+            print(
+                f"Added missing columns in content.lessons: {', '.join(added_columns)}"
+            )
+    finally:
+        db.close()
+
+
 def seed(force: bool = False) -> None:
+    ensure_lessons_schema()
     db = SessionLocal()
     try:
         existing = db.query(Lesson).count()
