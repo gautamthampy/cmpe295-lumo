@@ -43,7 +43,6 @@ export default function RegisterPage() {
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
 
   // Temp storage between steps
-  const [parentToken, setParentToken] = useState('');
   const [studentId, setStudentId] = useState('');
 
   useEffect(() => {
@@ -56,7 +55,6 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       const res = await authAPI.registerParent({ email, password, display_name: parentName });
-      setParentToken(res.data.access_token);
       login(res.data.access_token, 'parent', parentName);
       setStep(2);
     } catch (err: unknown) {
@@ -177,7 +175,7 @@ export default function RegisterPage() {
         <form onSubmit={handleStep2} className="space-y-4">
           <h2 className="text-lg font-semibold text-gray-800">Add your child</h2>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Child's name</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Child&apos;s name</label>
             <input
               type="text" value={childName} onChange={(e) => setChildName(e.target.value)}
               required className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-white/80 focus:outline-none focus:ring-2 focus:ring-violet-400"

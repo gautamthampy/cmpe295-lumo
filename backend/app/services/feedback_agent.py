@@ -4,7 +4,7 @@ Handles tiered hint generation, error explanations, and motivational messages.
 Coordinates with GeminiService for LLM-based content and mocks other agent interactions.
 """
 from typing import Dict, Any, Optional, List
-from app.services.gemini_service import gemini_service
+from app.services.gemini_service import get_gemini_service
 from app.services.socratic_hint_generator import socratic_hint_generator
 from app.services.tone_guardrails import tone_guardrails
 import logging
@@ -21,7 +21,7 @@ class FeedbackAgent:
     """
 
     def __init__(self):
-        self.gemini = gemini_service
+        self.gemini = get_gemini_service()
 
     async def generate_hint(
         self,

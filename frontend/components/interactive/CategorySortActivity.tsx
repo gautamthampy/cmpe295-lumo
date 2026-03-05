@@ -96,7 +96,6 @@ export default function CategorySortActivity({ activity, onResult }: Props) {
               <div className="flex flex-wrap gap-1">
                 {catItems.map((item) => {
                   const isCorrect = submitted && correctMap[item] === cat.name;
-                  const isWrong = submitted && correctMap[item] !== cat.name;
                   return (
                     <span key={item} className={`px-2 py-1 rounded text-xs font-medium ${
                       submitted

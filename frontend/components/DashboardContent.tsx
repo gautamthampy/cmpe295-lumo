@@ -59,7 +59,7 @@ export default function DashboardContent() {
 
                 <div className="bg-white/60 p-6 border-t border-indigo-50 flex justify-end gap-4 mt-auto">
                     <button className="px-6 py-3 rounded-xl font-bold text-slate-600 hover:bg-slate-100 transition-colors">
-                        I don't understand 🤔
+                        I don&apos;t understand 🤔
                     </button>
                     <button className="px-8 py-3 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-xl font-bold shadow-md shadow-indigo-200 hover:-translate-y-0.5 transition-transform">
                         Take the Quiz 🚀

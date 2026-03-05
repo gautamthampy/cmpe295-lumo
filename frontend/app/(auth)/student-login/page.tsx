@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { authAPI } from '@/lib/api';
 import { useAuthStore } from '@/lib/store/auth';
 
@@ -18,7 +18,6 @@ const AVATAR_EMOJIS: Record<string, string> = {
 
 export default function StudentLoginPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const login = useAuthStore((s) => s.login);
 
   const [students, setStudents] = useState<StudentProfile[]>([]);
@@ -81,7 +80,7 @@ export default function StudentLoginPage() {
     <div className="glass-panel p-8 rounded-2xl shadow-xl">
       <div className="text-center mb-6">
         <span className="text-4xl font-bold text-gradient">LUMO</span>
-        <p className="text-lg font-medium text-gray-700 mt-2">Who's learning today?</p>
+        <p className="text-lg font-medium text-gray-700 mt-2">Who&apos;s learning today?</p>
       </div>
 
       {/* Avatar grid */}

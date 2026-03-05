@@ -41,7 +41,6 @@ export default function WordBankActivity({ activity, onResult }: Props) {
     if (submitted) return;
     if (selectedBank !== null) {
       const next = [...filled];
-      const oldWord = next[i];
       next[i] = selectedBank;
       setFilled(next);
       setSelectedBank(null);

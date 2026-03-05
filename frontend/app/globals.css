@@ -78,6 +78,42 @@ body::before {
   }
 }
 
+@layer components {
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--color-primary-base) 0%, var(--color-primary-dark) 100%);
+    color: #ffffff;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: none;
+  }
+
+  .btn-primary:hover {
+    background: linear-gradient(135deg, var(--color-primary-light) 0%, var(--color-primary-base) 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(107, 102, 232, 0.35);
+  }
+
+  .btn-primary:active {
+    transform: translateY(0);
+  }
+
+  .btn-primary:focus-visible {
+    outline: 2px solid var(--color-primary-base);
+    outline-offset: 2px;
+  }
+
+  .btn-primary:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+}
+
 @layer utilities {
   .glass {
     background-color: var(--glass-bg);

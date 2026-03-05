@@ -39,7 +39,13 @@ class Settings(BaseSettings):
     ENABLE_ANONYMIZATION: bool = True
 
     # CORS
-    CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:8000"]
+    CORS_ORIGINS: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:3002",
+        "http://localhost:3003",
+        "http://localhost:8000",
+    ]
 
     # LLM (Google Gemini API)
     #GEMINI_API_KEY: str = ""
