@@ -6,10 +6,13 @@ import MdxEditor from '@/components/lessons/MdxEditor';
 import { lessonsAPI } from '@/lib/api';
 import type { LessonGenerateResponse } from '@/lib/types';
 
+type Strategy = 'hybrid' | 'zpd' | 'misconception' | 'bkt';
+
 interface FormState {
   topic: string;
   subject: string;
   gradeLevel: number;
+  strategy: Strategy;
   title: string;
   mdxContent: string;
 }
@@ -48,6 +51,7 @@ export default function LessonEditorPage() {
     topic: '',
     subject: 'Mathematics',
     gradeLevel: 3,
+    strategy: 'hybrid',
     title: '',
     mdxContent: '',
   });
@@ -72,6 +76,7 @@ export default function LessonEditorPage() {
         topic: form.topic,
         grade_level: form.gradeLevel,
         subject: form.subject,
+        strategy: form.strategy,
         save_as_draft: false,
       });
       const data: LessonGenerateResponse = res.data;
@@ -202,7 +207,24 @@ export default function LessonEditorPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Strategy selector */}
+          <div className="flex items-center gap-2">
+            <label htmlFor="strategy-select" className="text-sm font-semibold text-slate-700">Strategy:</label>
+            <select
+              id="strategy-select"
+              value={form.strategy}
+              onChange={(e) => setForm((f) => ({ ...f, strategy: e.target.value as Strategy }))}
+              className="px-3 py-2 bg-violet-50/60 border border-violet-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 text-slate-800"
+              title="AI generation strategy: Hybrid combines all three approaches"
+            >
+              <option value="hybrid">Hybrid (recommended)</option>
+              <option value="zpd">ZPD Scaffolding</option>
+              <option value="misconception">Misconception-Driven</option>
+              <option value="bkt">Knowledge Tracing (BKT)</option>
+            </select>
+          </div>
+
           <button
             onClick={handleGenerate}
             disabled={generating || !form.topic.trim()}
@@ -218,7 +240,7 @@ export default function LessonEditorPage() {
                 {Math.round(genResult.accessibility_score * 100)}%
               </strong>
               <span className="text-slate-400 ml-1 text-xs">
-                {genResult.gemini_used ? '(Gemini)' : '(stub template)'}
+                {genResult.gemini_used ? `(Gemini · ${form.strategy})` : '(stub template)'}
               </span>
             </span>
           )}

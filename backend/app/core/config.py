@@ -24,7 +24,9 @@ class Settings(BaseSettings):
     # JWT
     JWT_SECRET: str = "dev-secret-change-in-production"
     JWT_ALGORITHM: str = "HS256"
-    JWT_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
+    JWT_EXPIRE_MINUTES: int = 60 * 24  # 24 hours for parents
+    STUDENT_TOKEN_EXPIRE_MINUTES: int = 60 * 8  # 8 hours for students (sessionStorage)
+    BCRYPT_ROUNDS: int = 12
 
     # Gemini
     GEMINI_API_KEY: str = ""

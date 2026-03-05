@@ -13,7 +13,10 @@ from sqlalchemy import inspect, text
 
 from app.core.database import SessionLocal
 from app.models.lesson import Lesson
+from app.models.auth import Parent, Student
+from app.models.subject import Subject, StudentSubject
 from app.seed.lesson_data import SEED_LESSONS
+from app.services.auth_service import get_auth_service
 
 
 def ensure_lessons_schema() -> None:
@@ -122,6 +125,67 @@ def seed(force: bool = False) -> None:
         db.close()
 
 
+def seed_demo_accounts() -> None:
+    """Seed a demo parent + student account for development and demos."""
+    db = SessionLocal()
+    try:
+        auth = get_auth_service()
+
+        # Demo parent
+        demo_email = "demo@lumo.app"
+        parent = db.query(Parent).filter(Parent.email == demo_email).first()
+        if not parent:
+            parent = Parent(
+                email=demo_email,
+                password_hash=auth.hash_password("demo1234"),
+                display_name="Demo Parent",
+            )
+            db.add(parent)
+            db.flush()
+            print(f"Created demo parent: {demo_email} / demo1234")
+        else:
+            print(f"Demo parent already exists: {demo_email}")
+
+        # Demo student
+        existing_student = db.query(Student).filter(
+            Student.parent_id == parent.parent_id,
+            Student.display_name == "Alex",
+        ).first()
+        if not existing_student:
+            student = Student(
+                parent_id=parent.parent_id,
+                display_name="Alex",
+                grade_level=3,
+                pin_hash=auth.hash_pin("1234"),
+                avatar_id="avatar-01",
+                consent_given=True,
+            )
+            db.add(student)
+            db.flush()
+            print("Created demo student: Alex (PIN: 1234)")
+
+            # Enroll in Math and English
+            for slug in ("math", "english"):
+                subject = db.query(Subject).filter(Subject.slug == slug).first()
+                if subject:
+                    enrollment = StudentSubject(
+                        student_id=student.student_id,
+                        subject_id=subject.subject_id,
+                    )
+                    db.add(enrollment)
+            print("  Enrolled Alex in Mathematics and English Language Arts")
+        else:
+            print("Demo student Alex already exists")
+
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"Warning: demo account seeding failed: {e}")
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
     force = "--force" in sys.argv
     seed(force=force)
+    seed_demo_accounts()

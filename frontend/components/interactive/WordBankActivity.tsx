@@ -8,15 +8,18 @@ interface Props {
 }
 
 export default function WordBankActivity({ activity, onResult }: Props) {
-  const { passage, bank, answers } = activity.data;
+  const { passage = '', bank = [], answers = [] } = activity.data ?? {};
   const parts = passage.split('___');
   const numBlanks = parts.length - 1;
-  const [filled, setFilled] = useState<(string | null)[]>(Array(numBlanks).fill(null));
+  const [filled, setFilled] = useState<(string | null)[]>(Array(Math.max(numBlanks, 0)).fill(null));
   const [submitted, setSubmitted] = useState(false);
   const [correct, setCorrect] = useState<boolean | null>(null);
   const [selectedBank, setSelectedBank] = useState<string | null>(null);
   const [selectedBlank, setSelectedBlank] = useState<number | null>(null);
   const startRef = useRef(Date.now());
+  if (!activity.data?.passage) {
+    return <div className="glass rounded-2xl p-6 my-4 text-sm text-slate-400">Invalid activity data.</div>;
+  }
 
   const usedWords = new Set(filled.filter(Boolean) as string[]);
 

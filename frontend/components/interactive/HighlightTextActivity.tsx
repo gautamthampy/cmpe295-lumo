@@ -8,11 +8,14 @@ interface Props {
 }
 
 export default function HighlightTextActivity({ activity, onResult }: Props) {
-  const { passage, targets, prompt } = activity.data;
+  const { passage, targets = [], prompt } = activity.data ?? {};
   const [highlighted, setHighlighted] = useState<Set<string>>(new Set());
   const [submitted, setSubmitted] = useState(false);
   const [correct, setCorrect] = useState<boolean | null>(null);
   const startRef = useRef(Date.now());
+  if (!passage) {
+    return <div className="glass rounded-2xl p-6 my-4 text-sm text-slate-400">Invalid activity data.</div>;
+  }
 
   // Tokenise passage into words, preserving punctuation as separate tokens
   const tokens = passage.split(/(\s+)/).flatMap((t) =>
