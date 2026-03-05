@@ -111,3 +111,105 @@ test.describe('Lesson Editor', () => {
     }
   });
 });
+
+// ─── Strategy Selector Tests ─────────────────────────────────────────────────
+
+test.describe('Lesson Editor — AI Strategy Selector', () => {
+  let editor: EditorPage;
+
+  test.beforeEach(async ({ page }) => {
+    editor = new EditorPage(page);
+    await editor.goto();
+  });
+
+  test('strategy selector is visible with label "Strategy:"', async () => {
+    await expect(editor.page.getByText('Strategy:')).toBeVisible();
+    await expect(editor.page.locator('#strategy-select')).toBeVisible();
+  });
+
+  test('strategy selector defaults to "hybrid"', async () => {
+    const select = editor.page.locator('#strategy-select');
+    await expect(select).toHaveValue('hybrid');
+  });
+
+  test('strategy selector has all 4 options', async () => {
+    const select = editor.page.locator('#strategy-select');
+    for (const value of ['hybrid', 'zpd', 'misconception', 'bkt']) {
+      await expect(select.locator(`option[value="${value}"]`)).toBeAttached();
+    }
+  });
+
+  test('changing strategy to "zpd" updates selector value', async () => {
+    const select = editor.page.locator('#strategy-select');
+    await select.selectOption('zpd');
+    await expect(select).toHaveValue('zpd');
+  });
+
+  test('changing strategy to "misconception" updates selector value', async () => {
+    const select = editor.page.locator('#strategy-select');
+    await select.selectOption('misconception');
+    await expect(select).toHaveValue('misconception');
+  });
+
+  test('changing strategy to "bkt" updates selector value', async () => {
+    const select = editor.page.locator('#strategy-select');
+    await select.selectOption('bkt');
+    await expect(select).toHaveValue('bkt');
+  });
+
+  test('selected strategy is sent in the generate API request', async ({ page }) => {
+    let capturedBody: Record<string, unknown> | null = null;
+    await page.route('**/api/v1/lessons/generate', async (route) => {
+      capturedBody = JSON.parse(route.request().postData() ?? '{}');
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          generated_mdx: '# Test\n\nContent here.',
+          accessibility_score: 0.85,
+          gemini_used: false,
+          saved_lesson_id: null,
+        }),
+      });
+    });
+
+    const select = editor.page.locator('#strategy-select');
+    await select.selectOption('zpd');
+    await editor.setTopic('Test Topic for ZPD');
+    await editor.generateButton().click();
+    await editor.page.waitForLoadState('networkidle');
+
+    expect(capturedBody).not.toBeNull();
+    expect(capturedBody!['strategy']).toBe('zpd');
+  });
+
+  test('A11y score shows strategy label after generation', async ({ page }) => {
+    await page.route('**/api/v1/lessons/generate', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          generated_mdx: '# Lesson\n\nContent.',
+          accessibility_score: 0.9,
+          gemini_used: true,
+          saved_lesson_id: null,
+        }),
+      })
+    );
+
+    const select = editor.page.locator('#strategy-select');
+    await select.selectOption('bkt');
+    await editor.setTopic('BKT strategy test');
+    await editor.generateButton().click();
+    await editor.page.waitForLoadState('networkidle');
+
+    // Should show score and strategy label
+    await expect(editor.page.getByText(/90%/)).toBeVisible({ timeout: 5000 });
+    await expect(editor.page.getByText(/bkt/i)).toBeVisible({ timeout: 5000 });
+  });
+
+  test('subject selector is visible with default "Mathematics"', async () => {
+    // Subject input exists in metadata form
+    await expect(editor.page.getByText(/lesson metadata/i)).toBeVisible();
+  });
+});

@@ -4,14 +4,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal
 from uuid import UUID
 
-from passlib.context import CryptContext
+import bcrypt
 from jose import JWTError, jwt
 
 from app.core.config import get_settings
 
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 logger = logging.getLogger(__name__)
+
+_BCRYPT_ROUNDS = 12
 
 
 class AuthService:
@@ -19,25 +19,29 @@ class AuthService:
         self.settings = get_settings()
 
     # ------------------------------------------------------------------
-    # Password / PIN hashing
+    # Password / PIN hashing  (bcrypt 5.x direct API)
     # ------------------------------------------------------------------
 
     def hash_password(self, plain: str) -> str:
-        return _pwd_context.hash(plain)
+        return bcrypt.hashpw(
+            plain.encode("utf-8"), bcrypt.gensalt(rounds=_BCRYPT_ROUNDS)
+        ).decode("utf-8")
 
     def verify_password(self, plain: str, hashed: str) -> bool:
         try:
-            return _pwd_context.verify(plain, hashed)
+            return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
         except Exception:
             return False
 
     def hash_pin(self, pin: str) -> str:
         """bcrypt a 4-digit PIN string."""
-        return _pwd_context.hash(pin)
+        return bcrypt.hashpw(
+            pin.encode("utf-8"), bcrypt.gensalt(rounds=_BCRYPT_ROUNDS)
+        ).decode("utf-8")
 
     def verify_pin(self, pin: str, hashed: str) -> bool:
         try:
-            return _pwd_context.verify(pin, hashed)
+            return bcrypt.checkpw(pin.encode("utf-8"), hashed.encode("utf-8"))
         except Exception:
             return False
 
