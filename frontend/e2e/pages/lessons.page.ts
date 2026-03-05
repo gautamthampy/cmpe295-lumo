@@ -1,11 +1,11 @@
 import { Page } from '@playwright/test';
 
 export class LessonsPage {
-  constructor(private page: Page) {}
+  constructor(readonly page: Page) {}
 
   async goto() {
     await this.page.goto('/lessons');
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('domcontentloaded');
   }
 
   heading() {

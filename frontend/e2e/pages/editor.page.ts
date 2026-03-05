@@ -1,11 +1,11 @@
 import { Page } from '@playwright/test';
 
 export class EditorPage {
-  constructor(private page: Page) {}
+  constructor(readonly page: Page) {}
 
   async goto() {
     await this.page.goto('/lessons/editor');
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('domcontentloaded');
   }
 
   heading() {
@@ -88,6 +88,6 @@ export class EditorPage {
   async waitForPreview() {
     // Preview is updated via debounced POST /lessons/preview
     await this.page.waitForTimeout(1200);
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('domcontentloaded');
   }
 }

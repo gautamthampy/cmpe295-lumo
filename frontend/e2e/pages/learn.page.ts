@@ -1,11 +1,11 @@
 import { Page } from '@playwright/test';
 
 export class LearnPage {
-  constructor(private page: Page) {}
+  constructor(readonly page: Page) {}
 
   async goto() {
     await this.page.goto('/learn');
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('domcontentloaded');
   }
 
   greeting() {
@@ -42,6 +42,6 @@ export class LearnPage {
 
   async waitForLoaded() {
     await this.loadingText().waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('domcontentloaded');
   }
 }

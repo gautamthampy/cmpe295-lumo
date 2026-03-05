@@ -24,6 +24,10 @@ export default defineConfig({
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'on-first-retry',
+    // Use domcontentloaded instead of networkidle — Next.js 15 HMR keeps
+    // connections alive indefinitely, causing networkidle to never resolve.
+    navigationTimeout: 30000,
+    actionTimeout: 10000,
   },
 
   projects: [

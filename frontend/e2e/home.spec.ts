@@ -40,7 +40,7 @@ test.describe('Home / Dashboard', () => {
 
   test('lesson cards are clickable links to lesson viewer', async ({ page }) => {
     // Wait for network to settle (backend may or may not be running)
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     const cards = page.locator('.glass-card').filter({ has: page.locator('h3') });
     const count = await cards.count();
     if (count > 0) {

@@ -50,7 +50,7 @@ test.describe('Lesson Quiz flow', () => {
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockQuiz) })
     );
     await page.goto(`/lessons/${lesson.lesson_id}`);
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     // Wait for lesson to load and Start Quiz button to appear
     await page.waitForSelector('#lesson-content', { timeout: 15000 });
     await page.waitForSelector('button:has-text("Start Quiz")', { timeout: 15000 });

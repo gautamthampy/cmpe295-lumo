@@ -1,11 +1,13 @@
 import { Page } from '@playwright/test';
 
 export class LessonViewerPage {
-  constructor(private page: Page) {}
+  constructor(readonly page: Page) {}
 
   async goto(lessonId: string) {
     await this.page.goto(`/lessons/${lessonId}`);
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('domcontentloaded');
+    // Wait for lesson content to render (requires API round-trip)
+    await this.page.locator('#lesson-content').waitFor({ state: 'visible', timeout: 30000 });
   }
 
   // Header elements

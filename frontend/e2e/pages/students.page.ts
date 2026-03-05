@@ -1,11 +1,11 @@
 import { Page } from '@playwright/test';
 
 export class StudentsPage {
-  constructor(private page: Page) {}
+  constructor(readonly page: Page) {}
 
   async goto() {
     await this.page.goto('/students');
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('domcontentloaded');
   }
 
   heading() {
@@ -49,7 +49,7 @@ export class StudentsPage {
   }
 
   async waitForLoaded() {
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('domcontentloaded');
     // Wait for the loading state to clear
     await this.loadingText().waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
   }

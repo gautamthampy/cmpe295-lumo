@@ -59,7 +59,7 @@ test.describe('Interactive Activities — Basic (MC, T/F, Fill-in-Blank)', () =>
     );
     await page.route('**/api/v1/mock/events', (route) => route.fulfill({ status: 200, body: '{}' }));
     await page.goto(`/lessons/${lesson.lesson_id}`);
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     // Wait for LessonViewer to fully render with activities
     await page.waitForSelector('#lesson-content', { timeout: 15000 });
   });

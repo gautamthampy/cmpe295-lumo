@@ -46,7 +46,7 @@ test.describe('Interactive Activities — DragToSort', () => {
     );
     await page.route('**/api/v1/mock/events', (route) => route.fulfill({ status: 200, body: '{}' }));
     await page.goto(`/lessons/${lesson.lesson_id}`);
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     await page.waitForSelector('#lesson-content', { timeout: 15000 });
   });
 
@@ -122,7 +122,7 @@ test.describe('Interactive Activities — MatchPairs', () => {
     );
     await page.route('**/api/v1/mock/events', (route) => route.fulfill({ status: 200, body: '{}' }));
     await page.goto(`/lessons/${lesson.lesson_id}`);
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     await page.waitForSelector('#lesson-content', { timeout: 15000 });
   });
 
@@ -168,7 +168,7 @@ test.describe('Interactive Activities — CategorySort', () => {
     );
     await page.route('**/api/v1/mock/events', (route) => route.fulfill({ status: 200, body: '{}' }));
     await page.goto(`/lessons/${lesson.lesson_id}`);
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     await page.waitForSelector('#lesson-content', { timeout: 15000 });
   });
 

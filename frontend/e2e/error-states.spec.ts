@@ -10,7 +10,7 @@ test.describe('Error States', () => {
       route.abort('connectionrefused')
     );
     await page.goto('/lessons');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     await expect(page.locator('[role="alert"]:not([id="__next-route-announcer__"])').first()).toBeVisible({ timeout: 10000 });
     await expect(page.getByText(/could not load lessons/i)).toBeVisible();
   });
@@ -20,7 +20,7 @@ test.describe('Error States', () => {
       route.fulfill({ status: 503, body: 'Service Unavailable' })
     );
     await page.goto('/lessons');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     await expect(page.getByText(/docker-compose/i)).toBeVisible({ timeout: 10000 });
   });
 
@@ -30,7 +30,7 @@ test.describe('Error States', () => {
     );
     // Use a fake UUID
     await page.goto('/lessons/00000000-0000-0000-0000-000000000999');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     await expect(page.locator('[role="alert"]:not([id="__next-route-announcer__"])').first()).toBeVisible({ timeout: 10000 });
   });
 
@@ -39,7 +39,7 @@ test.describe('Error States', () => {
       route.fulfill({ status: 500, contentType: 'application/json', body: '{"detail":"Server error"}' })
     );
     await page.goto('/lessons/00000000-0000-0000-0000-000000000999');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     await expect(page.getByRole('link', { name: /back to lessons/i })).toBeVisible({ timeout: 10000 });
   });
 
@@ -48,7 +48,7 @@ test.describe('Error States', () => {
       route.fulfill({ status: 500, body: 'Internal Server Error' })
     );
     await page.goto('/lessons/analytics');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     await expect(page.locator('[role="alert"]:not([id="__next-route-announcer__"])').first()).toBeVisible({ timeout: 10000 });
     await expect(page.getByText(/could not load analytics/i)).toBeVisible();
   });
@@ -62,7 +62,7 @@ test.describe('Error States', () => {
       })
     );
     await page.goto('/lessons/editor');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
 
     await page.locator('#topic-input').fill('Test Topic');
     await page.getByRole('button', { name: /generate.*ai/i }).click();
@@ -84,7 +84,7 @@ test.describe('Error States', () => {
       route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
     );
     await page.goto('/lessons');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     await expect(page.getByText(/no lessons found/i)).toBeVisible({ timeout: 10000 });
     await expect(page.getByText(/seed_db/i)).toBeVisible();
   });

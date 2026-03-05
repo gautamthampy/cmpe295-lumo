@@ -177,7 +177,7 @@ test.describe('Lesson Editor — AI Strategy Selector', () => {
     await select.selectOption('zpd');
     await editor.setTopic('Test Topic for ZPD');
     await editor.generateButton().click();
-    await editor.page.waitForLoadState('networkidle');
+    await editor.page.waitForLoadState('domcontentloaded');
 
     expect(capturedBody).not.toBeNull();
     expect(capturedBody!['strategy']).toBe('zpd');
@@ -201,7 +201,7 @@ test.describe('Lesson Editor — AI Strategy Selector', () => {
     await select.selectOption('bkt');
     await editor.setTopic('BKT strategy test');
     await editor.generateButton().click();
-    await editor.page.waitForLoadState('networkidle');
+    await editor.page.waitForLoadState('domcontentloaded');
 
     // Should show score and strategy label
     await expect(editor.page.getByText(/90%/)).toBeVisible({ timeout: 5000 });
