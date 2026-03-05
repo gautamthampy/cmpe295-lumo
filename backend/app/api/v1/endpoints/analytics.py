@@ -55,7 +55,7 @@ def ingest_event(event: Event, db: Session = Depends(get_db)):
         idle_ms=int(idle_ms) if idle_ms is not None else None,
     )
     score, _details = compute_attention_score(features)
-    _rationale = build_rationale(features, score)
+    rationale = build_rationale(features, score)
     drift, recommended_action = evaluate_drift(
         user_id=str(event.user_id),
         session_id=str(event.session_id),
@@ -87,6 +87,7 @@ def ingest_event(event: Event, db: Session = Depends(get_db)):
             "attention_score": score,
             "drift": drift,
             "recommended_action": recommended_action,
+            "rationale": rationale,
         },
     )
 
@@ -114,9 +115,10 @@ def get_attention_metrics(user_id: UUID, db: Session = Depends(get_db)):
         for row in rows
     ]
 
-    # Use most recent metric (if any) to derive drift view.
+    # Use most recent metric (if any) to derive drift view and rationale.
     if rows:
         last_session_id = rows[0].session_id
+        last_score = float(rows[0].attention_score) if rows[0].attention_score is not None else 0.0
         drift, recommended_action = get_drift_status(
             user_id=str(user_id),
             session_id=str(last_session_id) if last_session_id is not None else "unknown",
