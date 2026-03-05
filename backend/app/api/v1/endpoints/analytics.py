@@ -42,10 +42,25 @@ def ingest_event(event: Event, db: Session = Depends(get_db)):
         # For non-question events we simply acknowledge for now.
         return JSONResponse(status_code=202, content={"detail": "Event accepted (ignored for attention)."})
 
+    # Validate session exists before updating Redis; invalid sessions must not pollute drift state.
+    session_row = db.get(SessionModel, event.session_id)
+    if session_row is None:
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "Unknown session_id. Create a session before logging events."},
+        )
+
     latency_ms = event.data.get("response_latency_ms")
     is_correct = event.data.get("is_correct")
     idle_ms = event.data.get("idle_ms")
-    lesson_id = event.data.get("lesson_id")
+    raw_lesson_id = event.data.get("lesson_id")
+
+    lesson_id: UUID | None = None
+    if raw_lesson_id is not None:
+        try:
+            lesson_id = UUID(str(raw_lesson_id))
+        except (ValueError, TypeError):
+            lesson_id = None
 
     features: AttentionFeatures = update_features_and_compute(
         user_id=str(event.user_id),
@@ -55,25 +70,17 @@ def ingest_event(event: Event, db: Session = Depends(get_db)):
         idle_ms=int(idle_ms) if idle_ms is not None else None,
     )
     score, _details = compute_attention_score(features)
-    _rationale = build_rationale(features, score)
+    rationale = build_rationale(features, score)
     drift, recommended_action = evaluate_drift(
         user_id=str(event.user_id),
         session_id=str(event.session_id),
         score=score,
     )
 
-    # Ensure the referenced session exists so we respect the DB foreign key.
-    session = db.get(SessionModel, event.session_id)
-    if session is None:
-        return JSONResponse(
-            status_code=400,
-            content={"detail": "Unknown session_id. Create a session before logging events."},
-        )
-
     metric = AttentionMetric(
         user_id=event.user_id,
         session_id=event.session_id,
-        lesson_id=None,
+        lesson_id=lesson_id,
         attention_score=score,
         avg_response_latency_ms=int(latency_ms) if latency_ms is not None else None,
         error_rate=features.err_norm,
@@ -87,6 +94,7 @@ def ingest_event(event: Event, db: Session = Depends(get_db)):
             "attention_score": score,
             "drift": drift,
             "recommended_action": recommended_action,
+            "rationale": rationale,
         },
     )
 
@@ -114,9 +122,10 @@ def get_attention_metrics(user_id: UUID, db: Session = Depends(get_db)):
         for row in rows
     ]
 
-    # Use most recent metric (if any) to derive drift view.
+    # Use most recent metric (if any) to derive drift view and rationale.
     if rows:
         last_session_id = rows[0].session_id
+        last_score = float(rows[0].attention_score) if rows[0].attention_score is not None else 0.0
         drift, recommended_action = get_drift_status(
             user_id=str(user_id),
             session_id=str(last_session_id) if last_session_id is not None else "unknown",

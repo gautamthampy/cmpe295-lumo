@@ -21,7 +21,13 @@ ROLLING_K = 10
 FEATURE_KEY_TEMPLATE = "attn:features:{user_id}:{session_id}"
 DRIFT_KEY_TEMPLATE = "attn:drift:{user_id}:{session_id}"
 
+# TTL for attention Redis keys; aligned with session duration so keys expire after inactivity
+ATTN_REDIS_TTL_SECONDS = 4 * 60 * 60  # 4 hours
+
 _redis_client: Redis | None = None
+
+events_processed_total = 0
+drifts_detected_total = 0
 
 
 def get_redis() -> Redis:
@@ -66,7 +72,7 @@ def _save_feature_state(
         "correct_flags": correct_flags[-ROLLING_K:],
         "idle_ms": idle_ms,
     }
-    get_redis().set(key, json.dumps(payload))
+    get_redis().set(key, json.dumps(payload), ex=ATTN_REDIS_TTL_SECONDS)
 
 
 def update_features_and_compute(
@@ -148,6 +154,17 @@ def compute_attention_score(features: AttentionFeatures) -> Tuple[float, Dict]:
     details = asdict(features)
     details["risk"] = risk
     details["score"] = score
+    logger.debug(
+        "attention_score_computed",
+        extra={
+            "lat_ms_norm": features.lat_ms_norm,
+            "err_norm": features.err_norm,
+            "idle_norm": features.idle_norm,
+            "var_norm": features.var_norm,
+            "risk": risk,
+            "score": score,
+        },
+    )
     return score, details
 
 
@@ -221,7 +238,7 @@ def _load_drift_state(key: str) -> DriftState:
 
 
 def _save_drift_state(key: str, state: DriftState) -> None:
-    get_redis().set(key, json.dumps(asdict(state)))
+    get_redis().set(key, json.dumps(asdict(state)), ex=ATTN_REDIS_TTL_SECONDS)
 
 
 def evaluate_drift(user_id: str, session_id: str, score: float) -> Tuple[bool, str]:
@@ -247,6 +264,8 @@ def evaluate_drift(user_id: str, session_id: str, score: float) -> Tuple[bool, s
     threshold_recover = 0.55
     trend_drop_min = 0.10
 
+    global drifts_detected_total
+
     if not drift:
         if score < threshold_low and trend_drop >= trend_drop_min:
             drift = True
@@ -261,6 +280,7 @@ def evaluate_drift(user_id: str, session_id: str, score: float) -> Tuple[bool, s
     _save_drift_state(key, state)
 
     if drift:
+        drifts_detected_total += 1
         if score < 0.25:
             recommended_action = "break"
         else:

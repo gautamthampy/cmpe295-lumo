@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { analyticsAPI } from '@/lib/api';
 
 interface AgentMessage {
@@ -63,12 +63,21 @@ type AttentionSummary = {
 
 const DEFAULT_USER_ID = '11111111-1111-1111-1111-111111111111';
 
+type PresenceStatus = 'idle' | 'checking' | 'done' | 'error';
+
+// 30 seconds for testing; increase to 30 minutes for production.
+const IDLE_THRESHOLD_MS = 30_000;
+
 export default function AgentPanel() {
   const [collapsed, setCollapsed] = useState(false);
   const [userId, setUserId] = useState(DEFAULT_USER_ID);
   const [attention, setAttention] = useState<AttentionSummary | null>(null);
   const [attnLoading, setAttnLoading] = useState(false);
   const [attnError, setAttnError] = useState<string | null>(null);
+  const [presenceStatus, setPresenceStatus] = useState<PresenceStatus>('idle');
+  const [cameraAllowed, setCameraAllowed] = useState<boolean | null>(null);
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   const handleRefreshAttention = async () => {
     setAttnLoading(true);
@@ -86,6 +95,84 @@ export default function AgentPanel() {
   const latestScore =
     attention?.recent.find((s) => s.attention_score !== null && s.attention_score !== undefined)
       ?.attention_score ?? null;
+
+  const stopStream = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+  };
+
+  const maybeRequestCameraConsent = async () => {
+    if (cameraAllowed !== null) return cameraAllowed;
+    if (typeof window === 'undefined') return false;
+
+    const accepted = window.confirm(
+      "Can we occasionally use your camera to check if you're still present? This is optional, processed locally, and we won't save any video.",
+    );
+    setCameraAllowed(accepted);
+    return accepted;
+  };
+
+  const runPresenceCheck = async () => {
+    const allowed = await maybeRequestCameraConsent();
+    if (!allowed || typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      return;
+    }
+    try {
+      setPresenceStatus('checking');
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      streamRef.current = stream;
+      setTimeout(() => {
+        stopStream();
+        setPresenceStatus('done');
+      }, 3000);
+    } catch {
+      setPresenceStatus('error');
+      setCameraAllowed(false);
+    }
+  };
+
+  const resetIdleTimer = () => {
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    idleTimerRef.current = setTimeout(() => {
+      void runPresenceCheck();
+    }, IDLE_THRESHOLD_MS);
+  };
+
+  const handleActivity = () => {
+    resetIdleTimer();
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+    resetIdleTimer();
+
+    const activityEvents: (keyof WindowEventMap)[] = ['mousemove', 'keydown', 'click', 'touchstart'];
+    activityEvents.forEach((ev) => window.addEventListener(ev, handleActivity));
+
+    const handleVisibility = () => {
+      // Requirement 1: note when the learner changes tab or window.
+      if (document.hidden) {
+        setPresenceStatus('idle');
+      } else {
+        handleActivity();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleActivity);
+
+    return () => {
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      activityEvents.forEach((ev) => window.removeEventListener(ev, handleActivity));
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleActivity);
+      stopStream();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (collapsed) {
     return (
@@ -176,6 +263,16 @@ export default function AgentPanel() {
         {attnError && (
           <p className="text-[11px] text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-1.5">
             {attnError}
+          </p>
+        )}
+        {presenceStatus !== 'idle' && (
+          <p className="text-[10px] text-slate-400">
+            Camera check status:{' '}
+            {presenceStatus === 'checking'
+              ? 'Checking…'
+              : presenceStatus === 'done'
+              ? 'Checked'
+              : 'Camera unavailable'}
           </p>
         )}
       </div>
