@@ -4,9 +4,12 @@ Handles tiered hint generation, error explanations, and motivational messages.
 Coordinates with GeminiService for LLM-based content and mocks other agent interactions.
 """
 from typing import Dict, Any, Optional, List
+from sqlalchemy.orm import Session
+import time
 from app.services.gemini_service import get_gemini_service
 from app.services.socratic_hint_generator import socratic_hint_generator
 from app.services.tone_guardrails import tone_guardrails
+from app.models.subject import FeedbackLog
 import logging
 
 logger = logging.getLogger(__name__)
@@ -25,7 +28,9 @@ class FeedbackAgent:
 
     async def generate_hint(
         self,
+        db: Session,
         question_id: str,
+        question_text: str,
         user_id: str,
         session_id: str,
         hint_level: int = 1,
@@ -35,7 +40,9 @@ class FeedbackAgent:
         Generate a hint based on the question context and requested level.
         
         Args:
-            question_id: UUID of the question
+            db: Database session
+            question_id: UUID or string of the question
+            question_text: Exact text of the question
             user_id: UUID of the user
             session_id: UUID of the session
             hint_level: 1 (subtle), 2 (moderate), 3 (direct)
@@ -44,10 +51,8 @@ class FeedbackAgent:
         Returns:
             Dict containing hint text and metadata
         """
-        # 1. Fetch question context (Mocked for now)
-        question_context = self._get_mock_question_context(question_id)
+        t0 = time.time()
         
-        # 2. Construct prompt context
         # In a real scenario, we'd fetch previous hints from DB to avoid repetition
         
         try:
@@ -56,7 +61,7 @@ class FeedbackAgent:
                 # Use Socratic Hint Generator to build advanced prompt
                 # Mocking mastery score as 0.5 for demonstration
                 prompt = socratic_hint_generator.generate_prompt_context(
-                    question_text=question_context["text"],
+                    question_text=question_text,
                     hint_level=hint_level,
                     mastery_score=0.5,
                     misconception_type=misconception_type
@@ -71,13 +76,15 @@ class FeedbackAgent:
                     hint_level=hint_level
                 )
             else:
-                hint_text = self._get_mock_hint(question_context["text"], hint_level)
+                hint_text = self._get_mock_hint(question_text, hint_level)
+                
+            latency_ms = int((time.time() - t0) * 1000)
 
-            # 4. Log event (Mocked Analytics)
-            self._log_feedback_event(user_id, "hint_generated", {
+            # 4. Log event to Analytics (Persisted)
+            self._log_feedback_event(db, user_id, session_id, "hint_generated", {
                 "question_id": question_id,
-                "level": hint_level,
-                "misconception": misconception_type
+                "latency_ms": latency_ms,
+                "misconception_type": misconception_type
             })
 
             return {
@@ -99,9 +106,13 @@ class FeedbackAgent:
 
     async def generate_explanation(
         self,
+        db: Session,
         question_id: str,
+        question_text: str,
         user_answer: str,
         correct_answer: str,
+        user_id: str,
+        session_id: Optional[str] = None,
         misconception_type: Optional[str] = None
     ) -> Dict[str, Any]:
         """
@@ -110,12 +121,12 @@ class FeedbackAgent:
         - Why the correct answer is right
         - A motivational nudge
         """
-        question_context = self._get_mock_question_context(question_id)
+        t0 = time.time()
         
         try:
             if self.gemini.model:
                 feedback_data = await self.gemini.generate_feedback(
-                    question=question_context["text"],
+                    question=question_text,
                     correct_answer=correct_answer,
                     student_answer=user_answer,
                     is_correct=False
@@ -135,10 +146,13 @@ class FeedbackAgent:
             else:
                 explanation = f"The correct answer is {correct_answer}. Your answer {user_answer} was incorrect."
                 motivation = "Don't give up! Mistakes help us learn."
+                
+            latency_ms = int((time.time() - t0) * 1000)
 
-            self._log_feedback_event("unknown_user", "explanation_generated", {
+            self._log_feedback_event(db, user_id, session_id, "explanation_generated", {
                 "question_id": question_id,
-                "misconception": misconception_type
+                "latency_ms": latency_ms,
+                "misconception_type": misconception_type
             })
 
             return {
@@ -171,15 +185,6 @@ class FeedbackAgent:
             }
         }
 
-    def _get_mock_question_context(self, question_id: str) -> Dict[str, Any]:
-        """Mock fetching question details from database"""
-        return {
-            "id": question_id,
-            "text": "What is the primary function of the mitochondria?",
-            "subject": "Biology",
-            "grade_level": 9
-        }
-
     def _get_mock_hint(self, question_text: str, level: int) -> str:
         """Fallback mock hints if LLM is unavailable"""
         hints = {
@@ -189,9 +194,24 @@ class FeedbackAgent:
         }
         return hints.get(level, "Think about the question carefully.")
 
-    def _log_feedback_event(self, user_id: str, event_type: str, data: Dict[str, Any]):
-        """Mock sending event to Analytics Agent"""
-        logger.info(f"[Analytics Event] User: {user_id}, Type: {event_type}, Data: {data}")
+    def _log_feedback_event(self, db: Session, user_id: str, session_id: Optional[str], event_type: str, data: Dict[str, Any]):
+        """Persist event to Analytics Database"""
+        try:
+            log = FeedbackLog(
+                user_id=user_id,
+                session_id=session_id,
+                question_id=data.get("question_id"),
+                feedback_type=event_type,
+                latency_ms=data.get("latency_ms"),
+                llm_model=self.gemini.model if self.gemini else "unknown",
+                misconception_type=data.get("misconception_type")
+            )
+            db.add(log)
+            db.commit()
+            logger.info(f"[Analytics Event Logged] User: {user_id}, Type: {event_type}")
+        except Exception as e:
+            logger.error(f"Failed to log feedback event: {e}")
+            db.rollback()
 
 # Global instance
 feedback_agent = FeedbackAgent()
