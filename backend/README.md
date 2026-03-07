@@ -150,6 +150,80 @@ Schemas:
 - `events.*` - User events, sessions
 - `learner.*` - Users, mastery scores, attention metrics
 
+### Attention & Analytics Pipeline (Phase 1)
+
+The Analytics & Attention agent is integrated into the main backend and works as follows:
+
+1. **Sessions**: A lesson session is created via `POST /api/v1/sessions/`, which inserts a row into `events.sessions`.
+2. **Event ingest**: Frontend or other services send `question_answered` events to `POST /api/v1/analytics/events` with:
+   - `user_id`, `session_id`
+   - `data.response_latency_ms`, `data.is_correct`, and optional `data.idle_ms` / `data.lesson_id`.
+3. **Scoring & drift**:
+   - The `attention_engine` normalizes latency, error rate, idle time, and variability into an `attention_score` in \[0,1].
+   - A short, human-readable `rationale` is generated (for example, “Stable latency; low errors” or “Slow responses and repeated errors”).
+   - An EMA-based drift detector decides whether the learner is in drift and recommends `continue`, `recap`, or `break`.
+4. **Persistence**:
+   - Each scored event is written to `learner.attention_metrics` with `user_id`, `session_id`, `attention_score`, latency, and error_rate.
+5. **Querying attention**:
+   - `GET /api/v1/analytics/attention/{user_id}` returns recent attention snapshots plus `drift` and `recommended_action` for dashboards and agents.
+
+#### Running attention tests
+
+From the `backend/` directory:
+
+```bash
+uv venv
+source .venv/bin/activate
+uv pip install -e ".[dev]"
+
+# Run all tests
+pytest -v
+
+# Or run only the attention-related tests
+pytest tests/test_attention_engine.py tests/test_analytics_api.py -v
+```
+
+#### Manual curl examples
+
+Create a session:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/sessions/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "11111111-1111-1111-1111-111111111111",
+    "device_type": "web",
+    "user_agent": "curl-test"
+  }'
+```
+
+Use the returned `session_id` to log a `question_answered` event:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/analytics/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_type": "question_answered",
+    "timestamp": "2025-10-25T19:15:33Z",
+    "user_id": "11111111-1111-1111-1111-111111111111",
+    "session_id": "PASTE_SESSION_ID_HERE",
+    "data": {
+      "question_id": "33333333-3333-3333-3333-333333333333",
+      "lesson_id": "44444444-4444-4444-4444-444444444444",
+      "response_latency_ms": 900,
+      "is_correct": true
+    }
+  }'
+```
+
+Query current attention for the same user:
+
+```bash
+curl http://localhost:8000/api/v1/analytics/attention/11111111-1111-1111-1111-111111111111
+```
+
+The response includes `recent` snapshots, `drift`, and a `recommended_action` and is the same data used by the frontend “Focus snapshot” panel.
+
 ## LLM Integration
 
 The backend uses Google Gemini API for LLM-powered features. See [GEMINI_SETUP.md](./GEMINI_SETUP.md) for configuration details.
