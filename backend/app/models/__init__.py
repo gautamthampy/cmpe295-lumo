@@ -7,5 +7,6 @@ from app.models.subject import (  # noqa: F401
     MisconceptionTaxonomy,
     StudentSubject,
     GenerationRun,
+    FeedbackLog,
     DiagnosticAssessment,
 )
