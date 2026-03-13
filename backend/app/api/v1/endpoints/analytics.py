@@ -26,6 +26,7 @@ from app.services.attention_engine import (
     compute_attention_score,
     evaluate_drift,
     get_drift_status,
+    rationale_from_score,
     update_features_and_compute,
 )
 
@@ -113,6 +114,45 @@ def ingest_event(event: Event, db: Session = Depends(get_db)):
     return JSONResponse(
         status_code=202,
         content={
+            "attention_score": score,
+            "drift": drift,
+            "recommended_action": recommended_action,
+            "rationale": rationale,
+        },
+    )
+
+
+@router.get("/attention/current/")
+def get_current_attention(user_id: UUID, session_id: UUID, db: Session = Depends(get_db)):
+    """Get the most recent attention status for a specific user + session."""
+    row: AttentionMetric | None = (
+        db.query(AttentionMetric)
+        .filter(
+            AttentionMetric.user_id == user_id,
+            AttentionMetric.session_id == session_id,
+        )
+        .order_by(desc(AttentionMetric.recorded_at))
+        .first()
+    )
+
+    if row is None or row.attention_score is None:
+        # No data yet: default to stable attention.
+        score = 1.0
+        drift, recommended_action = False, "continue"
+        rationale = rationale_from_score(score)
+    else:
+        score = float(row.attention_score)
+        drift, recommended_action = get_drift_status(
+            user_id=str(user_id),
+            session_id=str(session_id),
+        )
+        rationale = rationale_from_score(score)
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "user_id": str(user_id),
+            "session_id": str(session_id),
             "attention_score": score,
             "drift": drift,
             "recommended_action": recommended_action,

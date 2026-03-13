@@ -123,9 +123,6 @@ def test_attention_summary_endpoint(client):
             "session_id": session_id,
             "data": {
                 "question_id": str(uuid.uuid4()),
-                # NOTE: If you hit a ForeignKeyViolation on lesson_id in local dev,
-                # you can temporarily set this to None while you bring up real lessons.
-                "lesson_id": str(uuid.uuid4()),
                 "response_latency_ms": latency,
                 "is_correct": correct,
             },
@@ -141,6 +138,71 @@ def test_attention_summary_endpoint(client):
     assert len(body["recent"]) >= 2
     assert "drift" in body
     assert "recommended_action" in body
+
+
+def test_current_attention_endpoint_with_history(client):
+    user_id = _random_user_id()
+
+    # Create session and log two events so we have some history.
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    assert res.status_code == 200
+    session_id = res.json()["session_id"]
+
+    for latency, correct in [(900, True), (4000, False)]:
+        event = {
+            "event_type": "question_answered",
+            "timestamp": "2025-10-25T19:15:33Z",
+            "user_id": user_id,
+            "session_id": session_id,
+            "data": {
+                "question_id": str(uuid.uuid4()),
+                # Use null lesson_id here so we don't depend on seeded lessons.
+                "lesson_id": None,
+                "response_latency_ms": latency,
+                "is_correct": correct,
+            },
+        }
+        res = client.post("/api/v1/analytics/events", json=event)
+        assert res.status_code == 202
+
+    res = client.get(
+        f"/api/v1/analytics/attention/current?user_id={user_id}&session_id={session_id}"
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["user_id"] == user_id
+    assert body["session_id"] == session_id
+    assert "attention_score" in body
+    assert "drift" in body
+    assert "recommended_action" in body
+    assert "rationale" in body
+
+
+def test_current_attention_endpoint_without_history(client):
+    user_id = _random_user_id()
+
+    # Create a session but do not log any attention events.
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    assert res.status_code == 200
+    session_id = res.json()["session_id"]
+
+    res = client.get(
+        f"/api/v1/analytics/attention/current?user_id={user_id}&session_id={session_id}"
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["user_id"] == user_id
+    assert body["session_id"] == session_id
+    # With no history we default to stable attention.
+    assert body["attention_score"] == 1.0
+    assert body["drift"] is False
+    assert body["recommended_action"] == "continue"
 
 
 def test_ingest_various_event_types_accepted(client):
