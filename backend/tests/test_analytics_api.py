@@ -37,7 +37,10 @@ def test_create_session_and_log_event_success(client):
         "session_id": session_id,
         "data": {
             "question_id": str(uuid.uuid4()),
+            # NOTE: If you hit a ForeignKeyViolation on lesson_id in local dev,
+            # you can temporarily set this to None while you bring up real lessons.
             "lesson_id": str(uuid.uuid4()),
+            #"lesson_id": None,
             "response_latency_ms": 900,
             "is_correct": True,
         },
@@ -107,6 +110,8 @@ def test_attention_summary_endpoint(client):
             "session_id": session_id,
             "data": {
                 "question_id": str(uuid.uuid4()),
+                # NOTE: If you hit a ForeignKeyViolation on lesson_id in local dev,
+                # you can temporarily set this to None while you bring up real lessons.
                 "lesson_id": str(uuid.uuid4()),
                 "response_latency_ms": latency,
                 "is_correct": correct,
