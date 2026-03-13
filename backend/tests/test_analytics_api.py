@@ -38,10 +38,8 @@ def test_create_session_and_log_event_success(client):
         "session_id": session_id,
         "data": {
             "question_id": str(uuid.uuid4()),
-            # NOTE: If you hit a ForeignKeyViolation on lesson_id in local dev,
-            # you can temporarily set this to None while you bring up real lessons.
-            "lesson_id": str(uuid.uuid4()),
-            #"lesson_id": None,
+            # Use null lesson_id here so we don't depend on seeded lessons.
+            "lesson_id": None,
             "response_latency_ms": 900,
             "is_correct": True,
         },
@@ -169,7 +167,7 @@ def test_current_attention_endpoint_with_history(client):
         assert res.status_code == 202
 
     res = client.get(
-        f"/api/v1/analytics/attention/current?user_id={user_id}&session_id={session_id}"
+        f"/api/v1/analytics/attention/current/?user_id={user_id}&session_id={session_id}"
     )
     assert res.status_code == 200
     body = res.json()
@@ -193,7 +191,7 @@ def test_current_attention_endpoint_without_history(client):
     session_id = res.json()["session_id"]
 
     res = client.get(
-        f"/api/v1/analytics/attention/current?user_id={user_id}&session_id={session_id}"
+        f"/api/v1/analytics/attention/current/?user_id={user_id}&session_id={session_id}"
     )
     assert res.status_code == 200
     body = res.json()
