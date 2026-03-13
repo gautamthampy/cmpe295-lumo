@@ -385,3 +385,73 @@ def test_attention_peaks_endpoint_basic(client):
     assert top["samples"] == 2
     assert 0.84 < top["score"] < 0.91
 
+
+def test_dashboard_endpoint_basic(client):
+    user_id = _random_user_id()
+    user_uuid = uuid.UUID(user_id)
+
+    with SessionLocal() as db:
+        # Clean any prior data for this user.
+        db.query(AttentionMetric).filter(AttentionMetric.user_id == user_uuid).delete()
+        db.query(UserEvent).filter(UserEvent.user_id == user_uuid).delete()
+        db.commit()
+
+        # Seed some attention metrics.
+        metrics = [
+            AttentionMetric(
+                user_id=user_uuid,
+                session_id=None,
+                lesson_id=None,
+                attention_score=0.8,
+                avg_response_latency_ms=800,
+                error_rate=0.1,
+                hour_of_day=9,
+                day_of_week=0,
+            ),
+            AttentionMetric(
+                user_id=user_uuid,
+                session_id=None,
+                lesson_id=None,
+                attention_score=0.6,
+                avg_response_latency_ms=1200,
+                error_rate=0.2,
+                hour_of_day=10,
+                day_of_week=1,
+            ),
+        ]
+
+        # Seed some user_events for lessons/quizzes.
+        events = [
+            UserEvent(
+                user_id=user_uuid,
+                session_id=None,
+                event_type="lesson_completed",
+                event_data={"lesson_id": str(uuid.uuid4()), "time_spent_ms": 600000},
+            ),
+            UserEvent(
+                user_id=user_uuid,
+                session_id=None,
+                event_type="lesson_completed",
+                event_data={"lesson_id": str(uuid.uuid4()), "time_spent_ms": 300000},
+            ),
+            UserEvent(
+                user_id=user_uuid,
+                session_id=None,
+                event_type="quiz_completed",
+                event_data={"quiz_id": str(uuid.uuid4()), "score": 4, "total_questions": 5},
+            ),
+        ]
+
+        db.add_all(metrics + events)
+        db.commit()
+
+    res = client.get(f"/api/v1/analytics/dashboard/{user_id}")
+    assert res.status_code == 200
+    body = res.json()
+
+    assert body["user_id"] == user_id
+    assert body["lessons_completed"] >= 2
+    assert body["quizzes_taken"] >= 1
+    assert "attention_summary" in body
+    assert isinstance(body["attention_summary"], dict)
+

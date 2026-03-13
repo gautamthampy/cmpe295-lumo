@@ -12,7 +12,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -259,4 +259,62 @@ def get_mastery_scores(user_id: UUID):
             "detail": "Mastery analytics implementation pending.",
         },
     )
+
+
+@router.get("/dashboard/{user_id}")
+def get_dashboard_data(user_id: UUID, db: Session = Depends(get_db)):
+    """Get a minimal dashboard view for a user.
+
+    This aligns loosely with DashboardData in api_contracts.yaml, focusing on:
+    - lessons_completed, quizzes_taken from events.user_events
+    - a simple overall_mastery placeholder
+    - a basic attention_summary derived from attention_metrics
+    """
+    # Lessons completed & quizzes taken from events.user_events.
+    lessons_completed = (
+        db.query(func.count(UserEvent.event_id))
+        .filter(
+            UserEvent.user_id == user_id,
+            UserEvent.event_type == "lesson_completed",
+        )
+        .scalar()
+        or 0
+    )
+    quizzes_taken = (
+        db.query(func.count(UserEvent.event_id))
+        .filter(
+            UserEvent.user_id == user_id,
+            UserEvent.event_type == "quiz_completed",
+        )
+        .scalar()
+        or 0
+    )
+
+    # Simple attention summary: average score across all metrics for the user.
+    avg_score = (
+        db.query(func.avg(AttentionMetric.attention_score))
+        .filter(AttentionMetric.user_id == user_id, AttentionMetric.attention_score.isnot(None))
+        .scalar()
+    )
+    avg_score_val = float(avg_score) if avg_score is not None else 0.0
+
+    attention_summary = {
+        "average_attention_score": avg_score_val,
+        "peak_focus_time": "",
+        "drift_count": 0,
+    }
+
+    # For now, overall_mastery/strengths/weaknesses/time_spent are simple placeholders.
+    dashboard = {
+        "user_id": str(user_id),
+        "lessons_completed": int(lessons_completed),
+        "quizzes_taken": int(quizzes_taken),
+        "overall_mastery": 0.0,
+        "strengths": [],
+        "weaknesses": [],
+        "time_spent_minutes": 0,
+        "attention_summary": attention_summary,
+    }
+
+    return JSONResponse(status_code=200, content=dashboard)
 
