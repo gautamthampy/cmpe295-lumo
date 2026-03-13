@@ -6,6 +6,7 @@ This wires the attention engine into the main backend, using:
 """
 from __future__ import annotations
 
+from datetime import timezone
 from typing import List
 from uuid import UUID
 
@@ -77,6 +78,12 @@ def ingest_event(event: Event, db: Session = Depends(get_db)):
         score=score,
     )
 
+    # Use the event's timestamp (in UTC) for time buckets so analytics can
+    # reason about peak hours and weekdays.
+    event_ts_utc = event.timestamp.astimezone(timezone.utc)
+    hour_of_day = event_ts_utc.hour
+    day_of_week = event_ts_utc.weekday()
+
     metric = AttentionMetric(
         user_id=event.user_id,
         session_id=event.session_id,
@@ -84,6 +91,8 @@ def ingest_event(event: Event, db: Session = Depends(get_db)):
         attention_score=score,
         avg_response_latency_ms=int(latency_ms) if latency_ms is not None else None,
         error_rate=features.err_norm,
+        hour_of_day=hour_of_day,
+        day_of_week=day_of_week,
     )
     db.add(metric)
     db.commit()

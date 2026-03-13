@@ -29,9 +29,10 @@ def test_create_session_and_log_event_success(client):
     session_id = res.json()["session_id"]
 
     # Log a question_answered event
+    timestamp = "2025-10-25T19:15:33Z"  # Saturday (5), 19:15 UTC -> hour_of_day = 19
     event = {
         "event_type": "question_answered",
-        "timestamp": "2025-10-25T19:15:33Z",
+        "timestamp": timestamp,
         "user_id": user_id,
         "session_id": session_id,
         "data": {
@@ -54,10 +55,16 @@ def test_create_session_and_log_event_success(client):
         rows = (
             db.query(AttentionMetric)
             .filter(AttentionMetric.user_id == uuid.UUID(user_id))
+            .order_by(AttentionMetric.recorded_at.asc())
             .all()
         )
         assert len(rows) >= 1
-        assert rows[-1].session_id == uuid.UUID(session_id)
+        last = rows[-1]
+        assert last.session_id == uuid.UUID(session_id)
+        # Check time bucketing fields derived from the event timestamp (UTC).
+        assert last.hour_of_day == 19
+        # 2025-10-25 is a Saturday -> Python weekday() = 5
+        assert last.day_of_week == 5
 
 
 def test_log_event_unknown_session_400(client):

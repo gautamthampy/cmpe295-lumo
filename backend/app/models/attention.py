@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, SmallInteger
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.core.database import Base
@@ -26,6 +26,10 @@ class AttentionMetric(Base):
     attention_score = Column(Float, nullable=True)
     avg_response_latency_ms = Column(Integer, nullable=True)
     error_rate = Column(Float, nullable=True)
+    # Time bucketing fields used for peak-window and trend analytics.
+    # Stored in UTC to keep computation simple and reproducible.
+    hour_of_day = Column(SmallInteger, nullable=True)  # 0-23
+    day_of_week = Column(SmallInteger, nullable=True)  # 0=Monday .. 6=Sunday
     recorded_at = Column(
         DateTime(timezone=True),
         nullable=False,
