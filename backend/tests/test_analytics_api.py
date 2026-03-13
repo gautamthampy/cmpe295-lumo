@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -454,4 +455,60 @@ def test_dashboard_endpoint_basic(client):
     assert body["quizzes_taken"] >= 1
     assert "attention_summary" in body
     assert isinstance(body["attention_summary"], dict)
+
+
+def test_attention_summary_endpoint_basic(client):
+    user_id = _random_user_id()
+    user_uuid = uuid.UUID(user_id)
+
+    with SessionLocal() as db:
+        # Clean any prior data for this user.
+        db.query(AttentionMetric).filter(AttentionMetric.user_id == user_uuid).delete()
+        db.commit()
+
+        # Seed attention metrics across two different days with different scores.
+        now = datetime.now(timezone.utc)
+        rows = [
+            AttentionMetric(
+                user_id=user_uuid,
+                session_id=None,
+                lesson_id=None,
+                attention_score=0.8,
+                avg_response_latency_ms=800,
+                error_rate=0.1,
+                recorded_at=now - timedelta(days=1),
+            ),
+            AttentionMetric(
+                user_id=user_uuid,
+                session_id=None,
+                lesson_id=None,
+                attention_score=0.6,
+                avg_response_latency_ms=900,
+                error_rate=0.2,
+                recorded_at=now - timedelta(days=1),
+            ),
+            AttentionMetric(
+                user_id=user_uuid,
+                session_id=None,
+                lesson_id=None,
+                attention_score=0.3,
+                avg_response_latency_ms=1500,
+                error_rate=0.4,
+                recorded_at=now - timedelta(days=2),
+            ),
+        ]
+        db.add_all(rows)
+        db.commit()
+
+    res = client.get(f"/api/v1/analytics/attention/summary/?user_id={user_id}&range_days=7")
+    assert res.status_code == 200
+    body = res.json()
+
+    assert body["user_id"] == user_id
+    assert body["range_days"] == 7
+    assert isinstance(body["daily_avg"], list)
+    # We seeded two distinct days, so expect at least 2 entries.
+    assert len(body["daily_avg"]) >= 2
+    # There should be at least one low-score metric contributing to drift_count.
+    assert body["drift_count"] >= 1
 

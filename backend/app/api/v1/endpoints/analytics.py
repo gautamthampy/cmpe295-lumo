@@ -6,7 +6,7 @@ This wires the attention engine into the main backend, using:
 """
 from __future__ import annotations
 
-from datetime import timezone
+from datetime import datetime, timedelta, timezone
 from typing import List
 from uuid import UUID
 
@@ -236,6 +236,64 @@ def get_attention_peaks(
         content={
             "user_id": str(user_id),
             "windows": windows,
+        },
+    )
+
+
+@router.get("/attention/summary/")
+def get_attention_summary(
+    user_id: UUID,
+    range_days: int = 7,
+    db: Session = Depends(get_db),
+):
+    """Get daily average attention scores over a recent window for a user."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=range_days)
+
+    day_col = func.date_trunc("day", AttentionMetric.recorded_at)
+
+    rows = (
+        db.query(
+            day_col.label("day"),
+            func.avg(AttentionMetric.attention_score).label("avg_score"),
+        )
+        .filter(
+            AttentionMetric.user_id == user_id,
+            AttentionMetric.recorded_at >= cutoff,
+            AttentionMetric.attention_score.isnot(None),
+        )
+        .group_by(day_col)
+        .order_by(day_col.asc())
+        .all()
+    )
+
+    daily_avg = [
+        {
+            "date": row.day.date().isoformat(),
+            "score": float(row.avg_score) if row.avg_score is not None else 0.0,
+        }
+        for row in rows
+    ]
+
+    # Simple drift_count heuristic: number of metrics in window with score < 0.4
+    drift_count = (
+        db.query(func.count(AttentionMetric.id))
+        .filter(
+            AttentionMetric.user_id == user_id,
+            AttentionMetric.recorded_at >= cutoff,
+            AttentionMetric.attention_score.isnot(None),
+            AttentionMetric.attention_score < 0.4,
+        )
+        .scalar()
+        or 0
+    )
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "user_id": str(user_id),
+            "range_days": range_days,
+            "daily_avg": daily_avg,
+            "drift_count": int(drift_count),
         },
     )
 
