@@ -7,6 +7,7 @@ from app.main import app
 from app.core.database import Base, engine, SessionLocal
 from app.models.attention import AttentionMetric
 from app.models.events import UserEvent
+from app.models.lesson import Lesson  # ensure content.lessons is in metadata for FKs
 
 
 @pytest.fixture
@@ -322,4 +323,65 @@ def test_ingest_various_event_types_accepted(client):
     for payload in events:
         res = client.post("/api/v1/analytics/events", json=payload)
         assert res.status_code == 202
+
+
+def test_attention_peaks_endpoint_basic(client):
+    user_id = _random_user_id()
+    user_uuid = uuid.UUID(user_id)
+    now = uuid.uuid1()  # just to have a stable-ish ordering; actual time not critical here
+
+    with SessionLocal() as db:
+        # Clean any prior metrics for this user.
+        db.query(AttentionMetric).filter(AttentionMetric.user_id == user_uuid).delete()
+        db.commit()
+
+        # Insert synthetic metrics for two windows:
+        rows = [
+            AttentionMetric(
+                user_id=user_uuid,
+                session_id=None,
+                lesson_id=None,
+                attention_score=0.9,
+                avg_response_latency_ms=800,
+                error_rate=0.0,
+                hour_of_day=9,
+                day_of_week=0,  # Monday
+            ),
+            AttentionMetric(
+                user_id=user_uuid,
+                session_id=None,
+                lesson_id=None,
+                attention_score=0.8,
+                avg_response_latency_ms=900,
+                error_rate=0.1,
+                hour_of_day=9,
+                day_of_week=0,  # Monday
+            ),
+            AttentionMetric(
+                user_id=user_uuid,
+                session_id=None,
+                lesson_id=None,
+                attention_score=0.5,
+                avg_response_latency_ms=2000,
+                error_rate=0.3,
+                hour_of_day=18,
+                day_of_week=1,  # Tuesday
+            ),
+        ]
+        db.add_all(rows)
+        db.commit()
+
+    # Use a very low min_samples so that our small synthetic dataset still yields peaks.
+    res = client.get(f"/api/v1/analytics/attention/peaks/?user_id={user_id}&min_samples=1")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["user_id"] == user_id
+    assert isinstance(body["windows"], list)
+    assert len(body["windows"]) >= 2
+
+    top = body["windows"][0]
+    assert top["day_of_week"] == 0
+    assert top["hour_of_day"] == 9
+    assert top["samples"] == 2
+    assert 0.84 < top["score"] < 0.91
 

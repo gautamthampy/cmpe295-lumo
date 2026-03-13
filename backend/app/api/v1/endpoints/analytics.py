@@ -29,6 +29,7 @@ from app.services.attention_engine import (
     rationale_from_score,
     update_features_and_compute,
 )
+from app.services.attention_peaks import get_attention_peaks_for_user
 
 router = APIRouter()
 
@@ -200,6 +201,42 @@ def get_attention_metrics(user_id: UUID, db: Session = Depends(get_db)):
         recent=snapshots,
         drift=drift,
         recommended_action=recommended_action,
+    )
+
+
+@router.get("/attention/peaks/")
+def get_attention_peaks(
+    user_id: UUID,
+    window_days: int = 28,
+    min_samples: int = 5,
+    top_k: int = 5,
+    db: Session = Depends(get_db),
+):
+    """Get top attention peak windows (hour x weekday) for a user."""
+    peaks = get_attention_peaks_for_user(
+        db=db,
+        user_id=user_id,
+        window_days=window_days,
+        min_samples=min_samples,
+        top_k=top_k,
+    )
+
+    windows = [
+        {
+            "day_of_week": p.day_of_week,
+            "hour_of_day": p.hour_of_day,
+            "score": p.avg_score,
+            "samples": p.samples,
+        }
+        for p in peaks
+    ]
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "user_id": str(user_id),
+            "windows": windows,
+        },
     )
 
 
