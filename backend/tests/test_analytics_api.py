@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.core.database import Base, engine, SessionLocal
 from app.models.attention import AttentionMetric
+from app.models.events import UserEvent
 
 
 @pytest.fixture
@@ -68,6 +69,18 @@ def test_create_session_and_log_event_success(client):
         assert last.hour_of_day == 19
         # 2025-10-25 is a Saturday -> Python weekday() = 5
         assert last.day_of_week == 5
+
+        # Confirm a raw event was written to events.user_events
+        event_rows = (
+            db.query(UserEvent)
+            .filter(
+                UserEvent.user_id == uuid.UUID(user_id),
+                UserEvent.session_id == uuid.UUID(session_id),
+                UserEvent.event_type == "question_answered",
+            )
+            .all()
+        )
+        assert len(event_rows) >= 1
 
 
 def test_log_event_unknown_session_400(client):

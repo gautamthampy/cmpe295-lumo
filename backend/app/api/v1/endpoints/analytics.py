@@ -1,7 +1,7 @@
 """Analytics & Attention endpoints.
 
 This wires the attention engine into the main backend, using:
-- events.user_events for raw interaction telemetry (future integration)
+- events.user_events for raw interaction telemetry
 - learner.attention_metrics for derived attention history
 """
 from __future__ import annotations
@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.attention import AttentionMetric
+from app.models.events import UserEvent
 from app.models.session import SessionModel
 from app.schemas.analytics import AttentionSnapshot, AttentionSummary, Event
 from app.services.attention_engine import (
@@ -63,6 +64,19 @@ def ingest_event(event: Event, db: Session = Depends(get_db)):
         except (ValueError, TypeError):
             lesson_id = None
 
+    # Persist raw event into events.user_events for analytics/debugging.
+    event_ts_utc = event.timestamp.astimezone(timezone.utc)
+    user_event = UserEvent(
+        user_id=event.user_id,
+        session_id=event.session_id,
+        event_type=event.event_type,
+        event_data={
+            "timestamp": event_ts_utc.isoformat(),
+            "data": event.data,
+        },
+    )
+    db.add(user_event)
+
     features: AttentionFeatures = update_features_and_compute(
         user_id=str(event.user_id),
         session_id=str(event.session_id),
@@ -80,7 +94,6 @@ def ingest_event(event: Event, db: Session = Depends(get_db)):
 
     # Use the event's timestamp (in UTC) for time buckets so analytics can
     # reason about peak hours and weekdays.
-    event_ts_utc = event.timestamp.astimezone(timezone.utc)
     hour_of_day = event_ts_utc.hour
     day_of_week = event_ts_utc.weekday()
 
