@@ -71,6 +71,13 @@ Query current attention for the same user:
 curl http://localhost:8000/api/v1/analytics/attention/11111111-1111-1111-1111-111111111111
 ```
 
+The response includes `recent` snapshots, `drift`, and a `recommended_action` and is the same data used by the frontend "Focus snapshot" panel.
+
+---
+
+### Demo Steps: How to Present the Attention & Analytics Work
+
+Follow these steps when giving a demo of the Attention & Analytics agent.
 
 #### 1. Prerequisites (before the demo)
 
