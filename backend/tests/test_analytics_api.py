@@ -124,3 +124,124 @@ def test_attention_summary_endpoint(client):
     assert "drift" in body
     assert "recommended_action" in body
 
+
+def test_ingest_various_event_types_accepted(client):
+    """Ensure /analytics/events accepts the event types defined in event_schema.json."""
+    user_id = _random_user_id()
+
+    # Create a real session for the user
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    assert res.status_code == 200
+    session_id = res.json()["session_id"]
+
+    base = {
+        "timestamp": "2025-10-25T19:15:33Z",
+        "user_id": user_id,
+        "session_id": session_id,
+    }
+
+    events = [
+        {
+            "event_type": "lesson_started",
+            **base,
+            "data": {
+                "lesson_id": str(uuid.uuid4()),
+                "lesson_title": "Fractions 101",
+                "subject": "Math",
+                "grade_level": 3,
+            },
+        },
+        {
+            "event_type": "lesson_completed",
+            **base,
+            "data": {
+                "lesson_id": str(uuid.uuid4()),
+                "time_spent_ms": 120000,
+                "completion_percentage": 100,
+            },
+        },
+        {
+            "event_type": "quiz_started",
+            **base,
+            "data": {
+                "quiz_id": str(uuid.uuid4()),
+                "lesson_id": str(uuid.uuid4()),
+                "question_count": 5,
+            },
+        },
+        {
+            "event_type": "question_answered",
+            **base,
+            "data": {
+                "question_id": str(uuid.uuid4()),
+                "answer": "A",
+                "is_correct": True,
+                "response_latency_ms": 850,
+            },
+        },
+        {
+            "event_type": "quiz_completed",
+            **base,
+            "data": {
+                "quiz_id": str(uuid.uuid4()),
+                "score": 4,
+                "total_questions": 5,
+                "time_spent_ms": 60000,
+                "mastery_achieved": True,
+            },
+        },
+        {
+            "event_type": "hint_requested",
+            **base,
+            "data": {
+                "question_id": str(uuid.uuid4()),
+                "hint_level": 1,
+                "misconception_type": "place_value",
+            },
+        },
+        {
+            "event_type": "feedback_provided",
+            **base,
+            "data": {
+                "question_id": str(uuid.uuid4()),
+                "feedback_type": "hint",
+                "misconception_addressed": "place_value",
+            },
+        },
+        {
+            "event_type": "attention_drift_detected",
+            **base,
+            "data": {
+                "attention_score": 0.3,
+                "response_latency_ms": 4200,
+                "error_rate": 0.5,
+                "action_taken": "break_suggested",
+            },
+        },
+        {
+            "event_type": "break_suggested",
+            **base,
+            "data": {
+                "reason": "attention_drift",
+                "duration_minutes": 3,
+                "accepted": True,
+            },
+        },
+        {
+            "event_type": "re_quiz_triggered",
+            **base,
+            "data": {
+                "original_quiz_id": str(uuid.uuid4()),
+                "trigger_reason": "low_mastery",
+                "misconception_type": "fractions",
+            },
+        },
+    ]
+
+    for payload in events:
+        res = client.post("/api/v1/analytics/events", json=payload)
+        assert res.status_code == 202
+
