@@ -18,7 +18,8 @@ class FakeRedis:
     def get(self, key: str) -> str | None:  # type: ignore[override]
         return self._store.get(key)
 
-    def set(self, key: str, value: str) -> None:  # type: ignore[override]
+    def set(self, key: str, value: str, **kwargs: Any) -> None:  # type: ignore[override]
+        """Mimic redis-py's set, ignoring TTL/extra kwargs for tests."""
         self._store[key] = value
 
 

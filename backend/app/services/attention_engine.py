@@ -72,11 +72,7 @@ def _save_feature_state(
         "correct_flags": correct_flags[-ROLLING_K:],
         "idle_ms": idle_ms,
     }
-    try:
-        get_redis().set(key, json.dumps(payload), ex=ATTN_REDIS_TTL_SECONDS)
-    except TypeError:
-        # Some Redis clients (or fakes used in tests) may not support TTL kwargs.
-        get_redis().set(key, json.dumps(payload))
+    get_redis().set(key, json.dumps(payload), ex=ATTN_REDIS_TTL_SECONDS)
 
 
 def update_features_and_compute(
@@ -242,11 +238,7 @@ def _load_drift_state(key: str) -> DriftState:
 
 
 def _save_drift_state(key: str, state: DriftState) -> None:
-    try:
-        get_redis().set(key, json.dumps(asdict(state)), ex=ATTN_REDIS_TTL_SECONDS)
-    except TypeError:
-        # Some Redis clients (or fakes used in tests) may not support TTL kwargs.
-        get_redis().set(key, json.dumps(asdict(state)))
+    get_redis().set(key, json.dumps(asdict(state)), ex=ATTN_REDIS_TTL_SECONDS)
 
 
 def evaluate_drift(user_id: str, session_id: str, score: float) -> Tuple[bool, str]:
