@@ -79,7 +79,10 @@ function CreatureCrafterMission({ lesson, onResult }: MissionProps) {
   }
 
   return (
-    <article className="rounded-[2rem] border-4 border-cyan-200 bg-gradient-to-br from-cyan-50 via-white to-blue-50 p-5 shadow-[0_18px_45px_-30px_rgba(14,116,144,0.5)]">
+    <article
+      data-testid="lumo-creature-crafter-mission"
+      className="rounded-[2rem] border-4 border-cyan-200 bg-gradient-to-br from-cyan-50 via-white to-blue-50 p-5 shadow-[0_18px_45px_-30px_rgba(14,116,144,0.5)]"
+    >
       <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-700">ELA Discovery</p>
       <h3 className="mt-2 text-2xl font-black text-slate-900">Creature Crafter</h3>
       <p className="mt-2 text-sm font-medium text-slate-700">
@@ -505,7 +508,10 @@ function AlchemistPotMission({ onResult }: MissionProps) {
   }
 
   return (
-    <article className="rounded-[2rem] border-4 border-sky-200 bg-gradient-to-br from-sky-50 via-white to-blue-50 p-5 shadow-[0_18px_45px_-30px_rgba(2,132,199,0.45)]">
+    <article
+      data-testid="lumo-alchemist-mission"
+      className="rounded-[2rem] border-4 border-sky-200 bg-gradient-to-br from-sky-50 via-white to-blue-50 p-5 shadow-[0_18px_45px_-30px_rgba(2,132,199,0.45)]"
+    >
       <p className="text-xs font-black uppercase tracking-[0.22em] text-sky-700">Science Discovery</p>
       <h3 className="mt-2 text-2xl font-black text-slate-900">The Alchemist&apos;s Pot</h3>
       <p className="mt-2 text-sm font-medium text-slate-700">

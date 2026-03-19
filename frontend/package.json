@@ -6,7 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:e2e": "playwright test",
+    "test:e2e:demo": "playwright test e2e/demo.spec.ts",
+    "test:e2e:curriculum": "playwright test e2e/curriculum-matrix.spec.ts",
+    "test:e2e:a2ui": "playwright test e2e/a2ui-mission-deck.spec.ts",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "@a2ui/react": "^0.8.0",
@@ -17,6 +22,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

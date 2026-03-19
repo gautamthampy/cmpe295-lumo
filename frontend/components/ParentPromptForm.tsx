@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   GRADE2_CURRICULUM,
   type DistrictId,
@@ -17,6 +17,7 @@ const DISTRICT_OPTIONS: DistrictId[] = ["SJUSD", "ESD"];
 const SUBJECT_OPTIONS: SubjectId[] = ["science", "math", "ela", "social_studies"];
 
 export function ParentPromptForm({ isLoading, onSubmit }: ParentPromptFormProps) {
+  const formRef = useRef<HTMLFormElement>(null);
   const [district, setDistrict] = useState<DistrictId>("SJUSD");
   const [subject, setSubject] = useState<SubjectId>("ela");
   const [curriculumCode, setCurriculumCode] = useState("SJUSD-G2-ELA-U1");
@@ -33,6 +34,13 @@ export function ParentPromptForm({ isLoading, onSubmit }: ParentPromptFormProps)
       ),
     [district, subject]
   );
+
+  useLayoutEffect(() => {
+    const el = formRef.current;
+    if (!el) return;
+    el.setAttribute("data-e2e-parent-form-ready", "true");
+    return () => el.removeAttribute("data-e2e-parent-form-ready");
+  }, []);
 
   function handleSubjectOrDistrictChange(nextDistrict: DistrictId, nextSubject: SubjectId) {
     const options = GRADE2_CURRICULUM.filter(
@@ -68,6 +76,7 @@ export function ParentPromptForm({ isLoading, onSubmit }: ParentPromptFormProps)
 
   return (
     <form
+      ref={formRef}
       onSubmit={handleSubmit}
       className="rounded-[2rem] border-4 border-cyan-200 bg-white/90 p-6 shadow-[0_22px_55px_-34px_rgba(8,145,178,0.45)]"
     >
@@ -180,7 +189,12 @@ export function ParentPromptForm({ isLoading, onSubmit }: ParentPromptFormProps)
       </label>
 
       {error ? (
-        <p className="mt-3 rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p>
+        <p
+          data-testid="parent-form-error"
+          className="mt-3 rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700"
+        >
+          {error}
+        </p>
       ) : null}
 
       <button

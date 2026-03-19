@@ -1,13 +1,10 @@
 "use client";
 
-import { Component, type ReactNode, useEffect } from "react";
-import {
-  A2UIViewer,
-  initializeDefaultCatalog,
-  type ComponentInstance,
-} from "@a2ui/react";
+import { Component, type ReactNode, useEffect, useMemo } from "react";
+import { A2UIViewer, initializeDefaultCatalog } from "@a2ui/react";
 import { injectStyles } from "@a2ui/react/styles";
 import type { LessonSpec } from "@/lib/lesson-spec";
+import { buildMissionDeckModel, getSceneKindLabel } from "./mission-deck-model";
 
 interface A2UIMissionDeckProps {
   lesson: LessonSpec;
@@ -26,6 +23,11 @@ class A2UIDeckErrorBoundary extends Component<
     return { hasError: true };
   }
 
+  componentDidCatch(error: Error, info: { componentStack?: string }) {
+    // Fallback looks like “plain text” — log the real renderer error in devtools.
+    console.error("[A2UIMissionDeck] @a2ui/react render failed; showing fallback card.", error, info);
+  }
+
   componentDidUpdate(prevProps: { children: ReactNode }) {
     if (prevProps.children !== this.props.children && this.state.hasError) {
       this.setState({ hasError: false });
@@ -40,17 +42,6 @@ class A2UIDeckErrorBoundary extends Component<
   }
 }
 
-function getSceneKindLabel(kind: LessonSpec["sceneSpec"]["kind"]) {
-  if (kind === "choice_transform") return "transform scene";
-  if (kind === "transform_grid") return "magic change scene";
-  if (kind === "dispatch_board") return "helper dispatch scene";
-  if (kind === "number_builder") return "number builder scene";
-  if (kind === "array_garden") return "garden array scene";
-  if (kind === "state_slider") return "science slider scene";
-  if (kind === "tool_meter") return "tool rescue scene";
-  return "discovery scene";
-}
-
 export function A2UIMissionDeck({ lesson, clueLine }: A2UIMissionDeckProps) {
   useEffect(() => {
     if (a2uiBootstrapped) return;
@@ -60,133 +51,75 @@ export function A2UIMissionDeck({ lesson, clueLine }: A2UIMissionDeckProps) {
   }, []);
 
   const previewLine = clueLine.trim() || lesson.sceneSpec.instruction || lesson.sceneSpec.helperText;
+  const { components, data } = useMemo(
+    () => buildMissionDeckModel(lesson, previewLine),
+    [lesson, previewLine]
+  );
+
+  const scene = lesson.sceneSpec;
   const fallbackDeck = (
     <section className="rounded-[1.8rem] border-2 border-white/85 bg-white/90 p-5 text-slate-900 shadow-sm">
       <p className="text-xs font-black uppercase tracking-[0.2em] text-cyan-700">
         Google A2UI Mission Deck
       </p>
-      <h2 className="mt-2 text-2xl font-black text-slate-900">{lesson.sceneSpec.title}</h2>
+      <h2 className="mt-2 text-2xl font-black text-slate-900">{scene.title}</h2>
       <p className="mt-2 text-sm font-semibold leading-relaxed text-slate-700">{previewLine}</p>
       <p className="mt-3 text-xs font-black uppercase tracking-[0.18em] text-slate-500">
-        Agentic surface type: {getSceneKindLabel(lesson.sceneSpec.kind)}
+        Agentic surface type: {getSceneKindLabel(scene.kind)}
       </p>
+      {scene.kind === "state_slider" ? (
+        <div className="mt-4 rounded-[1.4rem] border border-indigo-100 bg-indigo-50/80 p-4">
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-indigo-700">
+            Fallback range (A2UI renderer error)
+          </p>
+          <label className="mt-2 block text-sm font-semibold text-slate-800" htmlFor="lumo-fallback-heat">
+            Heat ({scene.minValue}–{scene.maxValue})
+          </label>
+          <input
+            id="lumo-fallback-heat"
+            type="range"
+            min={scene.minValue}
+            max={scene.maxValue}
+            defaultValue={scene.initialValue}
+            className="mt-2 w-full accent-indigo-600"
+          />
+        </div>
+      ) : null}
+      {scene.kind === "choice_transform" ? (
+        <div className="mt-4 rounded-[1.4rem] border border-cyan-100 bg-cyan-50/80 p-4">
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-700">
+            Fallback buttons (A2UI renderer error)
+          </p>
+          <div className="mt-2 grid gap-2">
+            {scene.choices.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className="rounded-xl border-2 border-slate-200 bg-white px-3 py-2 text-left text-sm font-bold text-slate-800"
+              >
+                <span className="mr-2">{c.emoji}</span>
+                {c.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <div className="mt-4 grid gap-3 md:grid-cols-2">
         <div className="rounded-[1.4rem] border border-cyan-100 bg-cyan-50/80 p-4">
           <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-700">Clue</p>
           <p className="mt-2 text-sm font-semibold text-slate-700">
-            Look for this clue: {lesson.sceneSpec.helperText}
+            Look for this clue: {scene.helperText}
           </p>
         </div>
         <div className="rounded-[1.4rem] border border-emerald-100 bg-emerald-50/80 p-4">
-          <p className="text-xs font-black uppercase tracking-[0.16em] text-emerald-700">
-            Reward
-          </p>
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-emerald-700">Reward</p>
           <p className="mt-2 text-sm font-semibold text-slate-700">
-            Fact to unlock: {lesson.sceneSpec.rewardFact}
+            Fact to unlock: {scene.rewardFact}
           </p>
         </div>
       </div>
     </section>
   );
-  const components: ComponentInstance[] = [
-    {
-      id: "mission-deck-card",
-      component: {
-        Card: {
-          child: "mission-deck-column",
-        },
-      },
-    },
-    {
-      id: "mission-deck-column",
-      component: {
-        Column: {
-          children: {
-            explicitList: [
-              "mission-deck-eyebrow",
-              "mission-deck-title",
-              "mission-deck-preview",
-              "mission-deck-scene-tag",
-              "mission-deck-helper-card",
-              "mission-deck-reward-card",
-            ],
-          },
-        },
-      },
-    },
-    {
-      id: "mission-deck-eyebrow",
-      component: {
-        Text: {
-          text: { literalString: "Google A2UI Mission Deck" },
-          usageHint: "caption",
-        },
-      },
-    },
-    {
-      id: "mission-deck-title",
-      component: {
-        Text: {
-          text: { literalString: lesson.sceneSpec.title },
-          usageHint: "h2",
-        },
-      },
-    },
-    {
-      id: "mission-deck-preview",
-      component: {
-        Text: {
-          text: { literalString: previewLine },
-          usageHint: "body",
-        },
-      },
-    },
-    {
-      id: "mission-deck-scene-tag",
-      component: {
-        Text: {
-          text: {
-            literalString: `Agentic surface type: ${getSceneKindLabel(lesson.sceneSpec.kind)}`,
-          },
-          usageHint: "caption",
-        },
-      },
-    },
-    {
-      id: "mission-deck-helper-card",
-      component: {
-        Card: {
-          child: "mission-deck-helper-copy",
-        },
-      },
-    },
-    {
-      id: "mission-deck-helper-copy",
-      component: {
-        Text: {
-          text: { literalString: `Look for this clue: ${lesson.sceneSpec.helperText}` },
-          usageHint: "body",
-        },
-      },
-    },
-    {
-      id: "mission-deck-reward-card",
-      component: {
-        Card: {
-          child: "mission-deck-reward-copy",
-        },
-      },
-    },
-    {
-      id: "mission-deck-reward-copy",
-      component: {
-        Text: {
-          text: { literalString: `Fact to unlock: ${lesson.sceneSpec.rewardFact}` },
-          usageHint: "body",
-        },
-      },
-    },
-  ];
 
   return (
     <A2UIDeckErrorBoundary fallback={fallbackDeck}>
@@ -194,7 +127,11 @@ export function A2UIMissionDeck({ lesson, clueLine }: A2UIMissionDeckProps) {
         <A2UIViewer
           root="mission-deck-card"
           components={components}
+          data={data}
           className="a2ui-mission-deck"
+          onAction={() => {
+            /* Mission deck is illustrative; game actions live in the Lumo mechanic below */
+          }}
         />
       </section>
     </A2UIDeckErrorBoundary>
