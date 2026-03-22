@@ -1,148 +1,44 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --color-primary-light: #8e8cf5;
-  --color-primary-base: #6b66e8;
-  --color-primary-dark: #4b46c6;
-
-  --color-secondary-light: #94e3fb;
-  --color-secondary-base: #5accee;
-  --color-secondary-dark: #37b0d5;
-
-  --color-accent-light: #ffeb82;
-  --color-accent-base: #fbd33a;
-
-  --color-bg-light: #f5f7fd;
-  --color-bg-dark: #0f172a;
-
-  --font-sans: "Outfit", "Inter", sans-serif;
-  --font-mono: "Fira Code", monospace;
-
-  --animate-float: float 6s ease-in-out infinite;
-  --animate-pulse-slow: pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-
-  --background: var(--color-bg-light);
-  --foreground: #1e293b;
-
-  --glass-bg: rgba(255, 255, 255, 0.7);
-  --glass-border: rgba(255, 255, 255, 0.5);
-  --glass-shadow: rgba(31, 38, 135, 0.07);
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: var(--color-bg-dark);
-    --foreground: #f8fafc;
-
-    --glass-bg: rgba(15, 23, 42, 0.7);
-    --glass-border: rgba(255, 255, 255, 0.1);
-    --glass-shadow: rgba(0, 0, 0, 0.3);
-  }
+html {
+  background: #fdf9f1;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-sans);
-  overflow-x: hidden;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top center, rgba(55, 97, 168, 0.07), transparent 36%),
+    linear-gradient(180deg, #fdf9f1 0%, #f9f4eb 100%);
+  color: #1c1c17;
+}
+
+a {
+  text-decoration: none;
+}
+
+::selection {
+  background: #d7e2ff;
+  color: #001a40;
+}
+
+.paper-noise {
   position: relative;
 }
 
-body::before {
+.paper-noise::before {
   content: "";
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background:
-    radial-gradient(circle at 15% 50%, rgba(107, 102, 232, 0.15) 0%, transparent 50%),
-    radial-gradient(circle at 85% 30%, rgba(90, 204, 238, 0.15) 0%, transparent 50%);
-  z-index: -1;
+  position: absolute;
+  inset: 0;
   pointer-events: none;
-}
-
-@keyframes float {
-  0% {
-    transform: translateY(0px);
-  }
-
-  50% {
-    transform: translateY(-10px);
-  }
-
-  100% {
-    transform: translateY(0px);
-  }
-}
-
-@layer components {
-  .btn-primary {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(135deg, var(--color-primary-base) 0%, var(--color-primary-dark) 100%);
-    color: #ffffff;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    border: none;
-  }
-
-  .btn-primary:hover {
-    background: linear-gradient(135deg, var(--color-primary-light) 0%, var(--color-primary-base) 100%);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(107, 102, 232, 0.35);
-  }
-
-  .btn-primary:active {
-    transform: translateY(0);
-  }
-
-  .btn-primary:focus-visible {
-    outline: 2px solid var(--color-primary-base);
-    outline-offset: 2px;
-  }
-
-  .btn-primary:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-    transform: none;
-    box-shadow: none;
-  }
-}
-
-@layer utilities {
-  .glass {
-    background-color: var(--glass-bg);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid var(--glass-border);
-    box-shadow: 0 8px 32px 0 var(--glass-shadow);
-  }
-
-  .glass-dark {
-    background-color: rgba(15, 23, 42, 0.7);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
-  }
-
-  .glass-panel {
-    @apply glass rounded-3xl p-6 transition-all duration-300;
-  }
-
-  .glass-card {
-    @apply glass rounded-2xl p-4 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl;
-  }
-
-  .text-gradient {
-    background: linear-gradient(135deg, var(--color-primary-base) 0%, var(--color-secondary-base) 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
+  background-image: radial-gradient(rgba(28, 28, 23, 0.035) 0.6px, transparent 0.6px);
+  background-size: 22px 22px;
+  opacity: 0.15;
 }

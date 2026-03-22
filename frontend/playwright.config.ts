@@ -1,4 +1,15 @@
+import { existsSync } from 'node:fs';
+
 import { defineConfig, devices } from '@playwright/test';
+
+const systemBrowserCandidates = [
+  process.env.PLAYWRIGHT_EXECUTABLE_PATH,
+  'C:/Program Files/Google/Chrome/Application/chrome.exe',
+  'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+  'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
+  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+].filter((candidate): candidate is string => Boolean(candidate));
+const systemBrowserPath = systemBrowserCandidates.find((candidate) => existsSync(candidate));
 
 /**
  * LUMO E2E test configuration.
@@ -33,7 +44,16 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        ...(systemBrowserPath
+          ? {
+              launchOptions: {
+                executablePath: systemBrowserPath,
+              },
+            }
+          : {}),
+      },
     },
   ],
 
