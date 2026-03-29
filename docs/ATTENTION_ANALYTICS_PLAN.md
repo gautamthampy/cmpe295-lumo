@@ -1,5 +1,7 @@
 ## Attention & Analytics Agent – Implementation Plan
 
+**Status:** Commits **1–19** and the **gap fix** (broad event persistence to `events.user_events`) are implemented in this repo. **Commits 20–23** (anonymization scheduling, full PII logging audit, Prometheus metrics, Locust load tests) are **deferred** as a follow-up ops milestone. Telemetry privacy notes: [PRIVACY_GUARDRAILS.md](PRIVACY_GUARDRAILS.md) (gaze is scalar-only; set `ENABLE_GAZE_TELEMETRY` in backend env).
+
 This document breaks the Attention & Analytics Agent work (from the design spec and `docs/`) into small, reviewable commits, grouped by phases up through Phase 5.
 
 Each bullet under a phase is intended to be one focused commit (or at most a very small pair of commits) so that code review stays easy for your teammates.

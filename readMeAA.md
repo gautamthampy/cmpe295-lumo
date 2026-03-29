@@ -13,6 +13,10 @@ The Analytics & Attention agent is integrated into the main backend and works as
    - An EMA-based drift detector decides whether the learner is in drift and recommends `continue`, `recap`, or `break`.
 4. **Persistence**:
    - Each scored event is written to `learner.attention_metrics` with `user_id`, `session_id`, `attention_score`, latency, and error_rate.
+   - All event types defined in `docs/event_schema.json` are stored in `events.user_events` when `session_id` is valid (telemetry-only types do not run the scoring pipeline).
+   - On the first transition into attention drift, an `attention_drift_detected` row is written and `POST /api/v1/feedback/attention-signal` records the same recommendation for Feedback/Planner integration.
+   - Mini-test completion (`attention_mini_test_completed`) maps score to `continue|recap|break` and writes an `attention_metrics` row. Self-report (`attention_self_report`) and break decisions (`break_accepted` / `break_declined`) persist as events only.
+   - Optional gaze telemetry: `gaze_attention_likelihood` with scalar `data.likelihood` — disabled by default (`ENABLE_GAZE_TELEMETRY=false`); see [docs/PRIVACY_GUARDRAILS.md](docs/PRIVACY_GUARDRAILS.md).
 5. **Querying attention**:
    - `GET /api/v1/analytics/attention/{user_id}` returns recent attention snapshots plus `drift` and `recommended_action` for dashboards and agents.
 
@@ -72,6 +76,10 @@ curl http://localhost:8000/api/v1/analytics/attention/11111111-1111-1111-1111-11
 ```
 
 The response includes `recent` snapshots, `drift`, and a `recommended_action` and is the same data used by the frontend "Focus snapshot" panel.
+
+**Lesson render planner hint:** `GET /api/v1/lessons/{lesson_id}/render?user_id=...` includes `attention_hint` (`peak_window_suggestion`, `message`) when the current UTC time matches the user’s top attention peak window from `attention_metrics`.
+
+**Frontend:** Focus dashboard at `/dashboard/attention` (trend + heatmap + mini-test + self-report). Agent panel can log break accept/decline events.
 
 ---
 

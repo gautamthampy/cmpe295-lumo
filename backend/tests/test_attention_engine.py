@@ -18,7 +18,7 @@ class FakeRedis:
     def get(self, key: str) -> str | None:  # type: ignore[override]
         return self._store.get(key)
 
-    def set(self, key: str, value: str) -> None:  # type: ignore[override]
+    def set(self, key: str, value: str, **kwargs: Any) -> None:  # type: ignore[override]
         self._store[key] = value
 
 
@@ -71,7 +71,7 @@ def test_drift_hysteresis_and_recommended_actions(monkeypatch: pytest.MonkeyPatc
     session_id = "sess-1"
 
     # Start with good focus: no drift.
-    drift, action = evaluate_drift(user_id, session_id, score=0.9)
+    drift, action, entered = evaluate_drift(user_id, session_id, score=0.9)
     assert drift is False
     assert action == "continue"
 
@@ -79,18 +79,18 @@ def test_drift_hysteresis_and_recommended_actions(monkeypatch: pytest.MonkeyPatc
     last_drift = False
     last_action: str | None = None
     for _ in range(6):
-        drift, action = evaluate_drift(user_id, session_id, score=0.1)
+        drift, action, entered = evaluate_drift(user_id, session_id, score=0.1)
         last_drift, last_action = drift, action
 
     assert last_drift is True
     assert last_action in {"break", "recap"}
 
     # A mildly low score during drift should still keep us in drift.
-    drift, action = evaluate_drift(user_id, session_id, score=0.3)
+    drift, action, entered = evaluate_drift(user_id, session_id, score=0.3)
     assert drift is True
 
     # Once the score recovers above the recovery threshold, drift should clear.
-    drift, action = evaluate_drift(user_id, session_id, score=0.9)
+    drift, action, entered = evaluate_drift(user_id, session_id, score=0.9)
     assert drift is False
     assert action == "continue"
 

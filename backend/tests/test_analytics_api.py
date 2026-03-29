@@ -319,11 +319,184 @@ def test_ingest_various_event_types_accepted(client):
                 "misconception_type": "fractions",
             },
         },
+        {
+            "event_type": "attention_mini_test_started",
+            **base,
+            "data": {"trigger": "session_start"},
+        },
+        {
+            "event_type": "attention_mini_test_completed",
+            **base,
+            "data": {"score": 0.85, "correct_count": 3, "total_questions": 4, "time_taken_ms": 12000},
+        },
     ]
 
     for payload in events:
         res = client.post("/api/v1/analytics/events", json=payload)
         assert res.status_code == 202
+
+
+def test_persist_only_schema_events_written_to_user_events(client):
+    """lesson_completed and similar types persist to events.user_events."""
+    user_id = _random_user_id()
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    assert res.status_code == 200
+    session_id = res.json()["session_id"]
+    payload = {
+        "event_type": "lesson_completed",
+        "timestamp": "2025-10-25T19:15:33Z",
+        "user_id": user_id,
+        "session_id": session_id,
+        "data": {
+            "lesson_id": str(uuid.uuid4()),
+            "time_spent_ms": 120000,
+            "completion_percentage": 100,
+        },
+    }
+    res = client.post("/api/v1/analytics/events", json=payload)
+    assert res.status_code == 202
+    assert "stored" in res.json().get("detail", "").lower()
+
+    with SessionLocal() as db:
+        row = (
+            db.query(UserEvent)
+            .filter(
+                UserEvent.user_id == uuid.UUID(user_id),
+                UserEvent.session_id == uuid.UUID(session_id),
+                UserEvent.event_type == "lesson_completed",
+            )
+            .first()
+        )
+        assert row is not None
+        assert row.event_data["data"]["completion_percentage"] == 100
+
+
+def test_unknown_event_type_not_persisted(client):
+    """Unknown event_type returns 202 but does not write user_events."""
+    user_id = _random_user_id()
+    uid = uuid.UUID(user_id)
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    session_id = res.json()["session_id"]
+    with SessionLocal() as db:
+        before = db.query(UserEvent).filter(UserEvent.user_id == uid).count()
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            "event_type": "totally_unknown_event_xyz",
+            "timestamp": "2025-10-25T19:15:33Z",
+            "user_id": user_id,
+            "session_id": session_id,
+            "data": {},
+        },
+    )
+    assert res.status_code == 202
+    assert "ignored" in res.json().get("detail", "").lower()
+    with SessionLocal() as db:
+        after = db.query(UserEvent).filter(UserEvent.user_id == uid).count()
+    assert after == before
+
+
+def test_mini_test_events_persisted(client):
+    """Mini-test events are accepted and stored in events.user_events."""
+    user_id = _random_user_id()
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    assert res.status_code == 200
+    session_id = res.json()["session_id"]
+    base = {
+        "timestamp": "2025-10-25T19:15:33Z",
+        "user_id": user_id,
+        "session_id": session_id,
+    }
+
+    # Started
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            **base,
+            "event_type": "attention_mini_test_started",
+            "data": {"trigger": "drift_detected", "test_id": str(uuid.uuid4())},
+        },
+    )
+    assert res.status_code == 202
+    assert "Mini-test event accepted" in res.json().get("detail", "")
+
+    # Completed
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            **base,
+            "event_type": "attention_mini_test_completed",
+            "data": {"score": 0.7, "correct_count": 2, "total_questions": 3, "time_taken_ms": 8000},
+        },
+    )
+    assert res.status_code == 202
+    assert "Mini-test event accepted" in res.json().get("detail", "")
+
+    with SessionLocal() as db:
+        rows = (
+            db.query(UserEvent)
+            .filter(
+                UserEvent.user_id == uuid.UUID(user_id),
+                UserEvent.session_id == uuid.UUID(session_id),
+                UserEvent.event_type.in_(("attention_mini_test_started", "attention_mini_test_completed")),
+            )
+            .all()
+        )
+        assert len(rows) == 2
+        types = {r.event_type for r in rows}
+        assert types == {"attention_mini_test_started", "attention_mini_test_completed"}
+
+
+def test_mini_test_completed_validation(client):
+    """attention_mini_test_completed requires score in [0, 1]; invalid session returns 400."""
+    user_id = _random_user_id()
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    assert res.status_code == 200
+    session_id = res.json()["session_id"]
+    base = {
+        "timestamp": "2025-10-25T19:15:33Z",
+        "user_id": user_id,
+        "session_id": session_id,
+        "event_type": "attention_mini_test_completed",
+    }
+
+    # Missing score -> 422
+    res = client.post("/api/v1/analytics/events", json={**base, "data": {}})
+    assert res.status_code == 422
+
+    # Score out of range -> 422
+    res = client.post("/api/v1/analytics/events", json={**base, "data": {"score": 1.5}})
+    assert res.status_code == 422
+
+    # Valid score
+    res = client.post("/api/v1/analytics/events", json={**base, "data": {"score": 0.0}})
+    assert res.status_code == 202
+
+    # Unknown session -> 400
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            "timestamp": "2025-10-25T19:15:33Z",
+            "user_id": user_id,
+            "session_id": str(uuid.uuid4()),
+            "event_type": "attention_mini_test_completed",
+            "data": {"score": 0.8},
+        },
+    )
+    assert res.status_code == 400
+    assert "Unknown session_id" in res.json().get("detail", "")
 
 
 def test_attention_peaks_endpoint_basic(client):
@@ -511,4 +684,137 @@ def test_attention_summary_endpoint_basic(client):
     assert len(body["daily_avg"]) >= 2
     # There should be at least one low-score metric contributing to drift_count.
     assert body["drift_count"] >= 1
+
+
+def test_self_report_persisted(client):
+    user_id = _random_user_id()
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    session_id = res.json()["session_id"]
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            "event_type": "attention_self_report",
+            "timestamp": "2025-10-25T19:15:33Z",
+            "user_id": user_id,
+            "session_id": session_id,
+            "data": {"focus_level": 0.6, "label": "ok"},
+        },
+    )
+    assert res.status_code == 202
+    assert "Self-report" in res.json().get("detail", "")
+    with SessionLocal() as db:
+        row = (
+            db.query(UserEvent)
+            .filter(
+                UserEvent.user_id == uuid.UUID(user_id),
+                UserEvent.event_type == "attention_self_report",
+            )
+            .first()
+        )
+        assert row is not None
+
+
+def test_gaze_telemetry_disabled_by_default(client, monkeypatch):
+    from unittest.mock import MagicMock
+
+    m = MagicMock()
+    m.ENABLE_GAZE_TELEMETRY = False
+    monkeypatch.setattr("app.api.v1.endpoints.analytics.settings", m)
+    user_id = _random_user_id()
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    session_id = res.json()["session_id"]
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            "event_type": "gaze_attention_likelihood",
+            "timestamp": "2025-10-25T19:15:33Z",
+            "user_id": user_id,
+            "session_id": session_id,
+            "data": {"likelihood": 0.5},
+        },
+    )
+    assert res.status_code == 202
+    assert "disabled" in res.json().get("detail", "").lower()
+
+
+def test_break_accepted_persisted(client):
+    user_id = _random_user_id()
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    session_id = res.json()["session_id"]
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            "event_type": "break_accepted",
+            "timestamp": "2025-10-25T19:15:33Z",
+            "user_id": user_id,
+            "session_id": session_id,
+            "data": {"reason": "user_choice", "duration_minutes": 5},
+        },
+    )
+    assert res.status_code == 202
+    with SessionLocal() as db:
+        row = (
+            db.query(UserEvent)
+            .filter(
+                UserEvent.user_id == uuid.UUID(user_id),
+                UserEvent.event_type == "break_accepted",
+            )
+            .first()
+        )
+        assert row is not None
+
+
+def test_feedback_attention_signal_endpoint(client):
+    uid = str(uuid.uuid4())
+    sid = str(uuid.uuid4())
+    res = client.post(
+        "/api/v1/feedback/attention-signal",
+        json={
+            "user_id": uid,
+            "session_id": sid,
+            "recommended_action": "recap",
+            "rationale": "Low attention score",
+        },
+    )
+    assert res.status_code == 200
+    assert res.json().get("status") == "ok"
+
+
+def test_mini_test_completed_writes_attention_metric(client):
+    user_id = _random_user_id()
+    uid = uuid.UUID(user_id)
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    session_id = res.json()["session_id"]
+    with SessionLocal() as db:
+        db.query(AttentionMetric).filter(AttentionMetric.user_id == uid).delete()
+        db.commit()
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            "event_type": "attention_mini_test_completed",
+            "timestamp": "2025-10-25T19:15:33Z",
+            "user_id": user_id,
+            "session_id": session_id,
+            "data": {"score": 0.9, "time_taken_ms": 5000},
+        },
+    )
+    assert res.status_code == 202
+    body = res.json()
+    assert body.get("attention_score") == 0.9
+    assert body.get("recommended_action") == "continue"
+    with SessionLocal() as db:
+        n = db.query(AttentionMetric).filter(AttentionMetric.user_id == uid).count()
+        assert n >= 1
 

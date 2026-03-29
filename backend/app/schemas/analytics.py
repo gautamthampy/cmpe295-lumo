@@ -18,6 +18,39 @@ class Event(BaseModel):
     data: Dict[str, Any] = Field(default_factory=dict)
 
 
+# ---- Mini-test events (Commit 10) -------------------------------------------
+
+
+class AttentionMiniTestStartedData(BaseModel):
+    """Payload for attention_mini_test_started. Optional fields for analytics."""
+
+    test_id: UUID | None = None
+    trigger: str | None = None  # e.g. "session_start", "drift_detected"
+
+
+class AttentionMiniTestCompletedData(BaseModel):
+    """Payload for attention_mini_test_completed. Score and result details."""
+
+    score: float = Field(..., ge=0.0, le=1.0)
+    test_id: UUID | None = None
+    correct_count: int | None = Field(None, ge=0)
+    total_questions: int | None = Field(None, ge=1)
+    time_taken_ms: int | None = Field(None, ge=0)
+
+
+class AttentionSelfReportData(BaseModel):
+    """Learner self-report of focus (no raw biometrics)."""
+
+    focus_level: float = Field(..., ge=0.0, le=1.0)
+    label: str | None = None
+
+
+class GazeAttentionLikelihoodData(BaseModel):
+    """Scalar gaze-derived likelihood only (see PRIVACY_GUARDRAILS.md)."""
+
+    likelihood: float = Field(..., ge=0.0, le=1.0)
+
+
 class AttentionSnapshot(BaseModel):
     recorded_at: datetime
     session_id: UUID | None = None

@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     # Privacy
     DATA_RETENTION_DAYS: int = 90
     ENABLE_ANONYMIZATION: bool = True
+    ENABLE_GAZE_TELEMETRY: bool = False
 
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:8000"]

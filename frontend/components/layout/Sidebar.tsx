@@ -4,10 +4,11 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const navItems = [
-  { href: '/',                 label: 'Dashboard',     icon: '🏠', color: 'from-violet-400 to-purple-300' },
-  { href: '/lessons',          label: 'Lessons',       icon: '📚', color: 'from-sky-400 to-cyan-300' },
-  { href: '/lessons/editor',   label: 'Lesson Editor', icon: '✨', color: 'from-amber-300 to-yellow-200' },
-  { href: '/lessons/analytics',label: 'Analytics',     icon: '📊', color: 'from-pink-400 to-rose-300' },
+  { href: '/',                     label: 'Dashboard',     icon: '🏠', color: 'from-violet-400 to-purple-300' },
+  { href: '/dashboard/attention',   label: 'Focus',         icon: '📈', color: 'from-emerald-400 to-teal-300' },
+  { href: '/lessons',              label: 'Lessons',       icon: '📚', color: 'from-sky-400 to-cyan-300' },
+  { href: '/lessons/editor',       label: 'Lesson Editor', icon: '✨', color: 'from-amber-300 to-yellow-200' },
+  { href: '/lessons/analytics',    label: 'Analytics',     icon: '📊', color: 'from-pink-400 to-rose-300' },
 ];
 
 export default function Sidebar() {

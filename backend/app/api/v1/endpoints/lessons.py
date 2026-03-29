@@ -2,6 +2,8 @@
 Lesson endpoints — Gautam's component (Phase 2+3)
 Handles lesson CRUD, MDX rendering, accessibility scoring, and sequencing.
 """
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import any_
 from sqlalchemy.orm import Session
@@ -14,11 +16,13 @@ from app.core.database import get_db
 from app.models.lesson import Lesson
 from app.schemas.lesson import (
     AccessibilityIssue,
+    AttentionHint,
     LessonCreate,
     LessonResponse,
     QuizContext,
     RenderedLessonResponse,
 )
+from app.services.attention_peaks import get_attention_peaks_for_user
 from app.services.mdx_renderer import get_renderer
 from app.services.accessibility_checker import get_checker
 
@@ -320,6 +324,25 @@ async def render_lesson(
 
     activities = renderer.extract_interactive_activities(lesson.content_mdx)
 
+    now = datetime.now(timezone.utc)
+    peaks = get_attention_peaks_for_user(
+        db=db,
+        user_id=user_id,
+        window_days=28,
+        min_samples=2,
+        top_k=1,
+    )
+    peak_suggestion = False
+    hint_message = ""
+    if peaks:
+        top = peaks[0]
+        if int(top.day_of_week) == now.weekday() and int(top.hour_of_day) == now.hour:
+            peak_suggestion = True
+            hint_message = (
+                "This time matches one of your peak focus windows — a good moment for deeper work."
+            )
+    attention_hint = AttentionHint(peak_window_suggestion=peak_suggestion, message=hint_message)
+
     return RenderedLessonResponse(
         lesson_id=lesson.lesson_id,
         html_content=html_content,
@@ -332,4 +355,5 @@ async def render_lesson(
         next_lesson_id=next_lesson_id,
         quiz_context=quiz_context,
         interactive_activities=activities,
+        attention_hint=attention_hint,
     )

@@ -128,14 +128,21 @@ mypy app/
 - `POST /{quiz_id}/submit` - Submit quiz answers
 
 ### Feedback (`/api/v1/feedback`)
-- `POST /hint` - Request contextual hint
-- `POST /explanation` - Get answer explanation
+- `POST /hint` - Request contextual hint (Phase 2 stub)
+- `POST /explanation` - Get answer explanation (Phase 2 stub)
+- `POST /attention-signal` - Record attention recommendation for Feedback/Planner (`user_id`, `session_id`, `recommended_action`, `rationale`)
 
 ### Analytics (`/api/v1/analytics`)
-- `POST /events` - Ingest user event
-- `GET /dashboard/{user_id}` - Get dashboard data
-- `GET /attention/{user_id}` - Get attention metrics
-- `GET /mastery/{user_id}` - Get mastery scores
+- `POST /events` - Ingest user events (`docs/event_schema.json`); `question_answered` runs scoring; other schema types persist to `events.user_events`
+- `GET /dashboard` - Deprecated; use `GET /dashboard/{user_id}`
+- `GET /dashboard/{user_id}` - Dashboard aggregates
+- `GET /attention/{user_id}` - Attention snapshots + drift
+- `GET /attention/current/` - Current attention for a session
+- `GET /attention/peaks/` - Peak focus windows
+- `GET /attention/summary/` - Daily trend summary
+- `GET /mastery/{user_id}` - Mastery placeholder
+
+Environment: `ENABLE_GAZE_TELEMETRY` (default `false`) — when false, `gaze_attention_likelihood` events are acknowledged but not stored.
 
 ### Sessions (`/api/v1/sessions`)
 - `POST /` - Create new session
@@ -164,6 +171,8 @@ The Analytics & Attention agent is integrated into the main backend and works as
    - An EMA-based drift detector decides whether the learner is in drift and recommends `continue`, `recap`, or `break`.
 4. **Persistence**:
    - Each scored event is written to `learner.attention_metrics` with `user_id`, `session_id`, `attention_score`, latency, and error_rate.
+   - Schema-defined telemetry (lessons, quizzes, mini-tests, self-report, breaks, etc.) is stored in `events.user_events`. Drift transitions also persist `attention_drift_detected` and trigger `POST /feedback/attention-signal` logging.
+   - `GET /api/v1/lessons/{id}/render` includes `attention_hint` when current time matches the learner’s top peak window (see `app/services/attention_peaks.py`).
 5. **Querying attention**:
    - `GET /api/v1/analytics/attention/{user_id}` returns recent attention snapshots plus `drift` and `recommended_action` for dashboards and agents.
 

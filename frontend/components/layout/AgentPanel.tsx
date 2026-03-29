@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { analyticsAPI } from '@/lib/api';
+import { analyticsAPI, sessionsAPI } from '@/lib/api';
 
 interface AgentMessage {
   id: string;
@@ -71,6 +71,7 @@ const IDLE_THRESHOLD_MS = 30_000;
 export default function AgentPanel() {
   const [collapsed, setCollapsed] = useState(false);
   const [userId, setUserId] = useState(DEFAULT_USER_ID);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [attention, setAttention] = useState<AttentionSummary | null>(null);
   const [attnLoading, setAttnLoading] = useState(false);
   const [attnError, setAttnError] = useState<string | null>(null);
@@ -78,6 +79,28 @@ export default function AgentPanel() {
   const [cameraAllowed, setCameraAllowed] = useState<boolean | null>(null);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  useEffect(() => {
+    sessionsAPI
+      .create(userId)
+      .then((res) => setSessionId(res.data.session_id as string))
+      .catch(() => setSessionId(null));
+  }, [userId]);
+
+  const postBreakDecision = async (eventType: 'break_accepted' | 'break_declined') => {
+    if (!sessionId) return;
+    try {
+      await analyticsAPI.ingestEvent({
+        event_type: eventType,
+        timestamp: new Date().toISOString(),
+        user_id: userId,
+        session_id: sessionId,
+        data: { reason: 'user_choice' },
+      });
+    } catch {
+      /* ignore */
+    }
+  };
 
   const handleRefreshAttention = async () => {
     setAttnLoading(true);
@@ -259,6 +282,25 @@ export default function AgentPanel() {
             </p>
           </div>
         </div>
+
+        {sessionId && (
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => postBreakDecision('break_accepted')}
+              className="text-xs px-3 py-1.5 rounded-full font-semibold bg-amber-100 text-amber-900 border border-amber-200 hover:bg-amber-200"
+            >
+              Log: take a break
+            </button>
+            <button
+              type="button"
+              onClick={() => postBreakDecision('break_declined')}
+              className="text-xs px-3 py-1.5 rounded-full font-semibold bg-white border border-violet-200 text-violet-800 hover:bg-violet-50"
+            >
+              Log: keep going
+            </button>
+          </div>
+        )}
 
         {attnError && (
           <p className="text-[11px] text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-1.5">

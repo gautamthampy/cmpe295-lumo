@@ -57,17 +57,32 @@ export const quizzesAPI = {
 export const feedbackAPI = {
   requestHint: (data: unknown) => api.post('/feedback/hint', data),
   getExplanation: (data: unknown) => api.post('/feedback/explanation', data),
+  attentionSignal: (data: {
+    user_id: string;
+    session_id: string;
+    recommended_action: string;
+    rationale?: string;
+  }) => api.post('/feedback/attention-signal', data),
 };
 
 export const analyticsAPI = {
   ingestEvent: (data: unknown) => api.post('/analytics/events', data),
-  getDashboard: () => api.get('/analytics/dashboard'),
+  getDashboard: (userId: string) => api.get(`/analytics/dashboard/${userId}`),
   getAttentionMetrics: (userId: string) => api.get(`/analytics/attention/${userId}`),
+  getAttentionSummary: (userId: string, params?: { range_days?: number }) =>
+    api.get('/analytics/attention/summary/', { params: { user_id: userId, ...params } }),
+  getAttentionPeaks: (userId: string, params?: { window_days?: number; min_samples?: number; top_k?: number }) =>
+    api.get('/analytics/attention/peaks/', { params: { user_id: userId, ...params } }),
   getMasteryScores: (userId: string) => api.get(`/analytics/mastery/${userId}`),
 };
 
 export const sessionsAPI = {
-  create: (userId: string) => api.post('/sessions', { user_id: userId }),
+  create: (userId: string) =>
+    api.post('/sessions/', {
+      user_id: userId,
+      device_type: 'web',
+      user_agent: 'lumo-frontend',
+    }),
   end: (sessionId: string) => api.post(`/sessions/${sessionId}/end`),
 };
 

@@ -241,10 +241,15 @@ def _save_drift_state(key: str, state: DriftState) -> None:
     get_redis().set(key, json.dumps(asdict(state)), ex=ATTN_REDIS_TTL_SECONDS)
 
 
-def evaluate_drift(user_id: str, session_id: str, score: float) -> Tuple[bool, str]:
-    """EMA-based drift detection with hysteresis and simple trend check."""
+def evaluate_drift(user_id: str, session_id: str, score: float) -> Tuple[bool, str, bool]:
+    """EMA-based drift detection with hysteresis and simple trend check.
+
+    Returns (drift, recommended_action, drift_just_entered).
+    """
     key = DRIFT_KEY_TEMPLATE.format(user_id=user_id, session_id=session_id)
     state = _load_drift_state(key)
+
+    prev_in_drift = state.in_drift
 
     now_ts = time()
     alpha = 0.20
@@ -273,6 +278,8 @@ def evaluate_drift(user_id: str, session_id: str, score: float) -> Tuple[bool, s
         if score > threshold_recover:
             drift = False
 
+    drift_just_entered = drift and not prev_in_drift
+
     state.ema = ema_new
     state.in_drift = drift
     state.last_updated_ts = now_ts
@@ -297,7 +304,7 @@ def evaluate_drift(user_id: str, session_id: str, score: float) -> Tuple[bool, s
             },
         )
 
-    return drift, recommended_action
+    return drift, recommended_action, drift_just_entered
 
 
 def get_drift_status(user_id: str, session_id: str) -> Tuple[bool, str]:

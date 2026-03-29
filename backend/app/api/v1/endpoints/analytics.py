@@ -15,11 +15,27 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
+from app.constants.analytics_events import (
+    GAZE_EVENT_TYPES,
+    MINI_TEST_EVENT_TYPES,
+    PERSIST_ONLY_EVENT_TYPES,
+    SELF_REPORT_EVENT_TYPES,
+)
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.attention import AttentionMetric
 from app.models.events import UserEvent
 from app.models.session import SessionModel
-from app.schemas.analytics import AttentionSnapshot, AttentionSummary, Event
+from app.schemas.analytics import (
+    AttentionMiniTestCompletedData,
+    AttentionMiniTestStartedData,
+    AttentionSelfReportData,
+    AttentionSnapshot,
+    AttentionSummary,
+    Event,
+    GazeAttentionLikelihoodData,
+)
+from app.services.attention_feedback import record_attention_signal
 from app.services.attention_engine import (
     AttentionFeatures,
     build_rationale,
@@ -30,20 +46,139 @@ from app.services.attention_engine import (
     update_features_and_compute,
 )
 from app.services.attention_peaks import get_attention_peaks_for_user
+from app.services.mini_test_scoring import mini_test_score_to_action
 
 router = APIRouter()
+
+
+def _persist_event(event: Event, db: Session) -> None:
+    """Persist a generic event to events.user_events."""
+    event_ts_utc = event.timestamp.astimezone(timezone.utc)
+    user_event = UserEvent(
+        user_id=event.user_id,
+        session_id=event.session_id,
+        event_type=event.event_type,
+        event_data={
+            "timestamp": event_ts_utc.isoformat(),
+            "data": event.data,
+        },
+    )
+    db.add(user_event)
 
 
 @router.post("/events", status_code=202)
 def ingest_event(event: Event, db: Session = Depends(get_db)):
     """Ingest a user event and update attention metrics.
 
-    Focuses on question_answered events for now, using:
-    - response_latency_ms
-    - is_correct
+    - question_answered: updates attention pipeline and persists to user_events.
+    - attention_mini_test_started / attention_mini_test_completed: validated and persisted to user_events.
+    - Other schema event types: persisted to user_events only (no attention scoring).
+    - Unknown event types: 202 acknowledged, not persisted.
     """
+    # Mini-test events: validate session, validate payload, persist to user_events.
+    if event.event_type in MINI_TEST_EVENT_TYPES:
+        session_row = db.get(SessionModel, event.session_id)
+        if session_row is None:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Unknown session_id. Create a session before logging events."},
+            )
+        if event.event_type == "attention_mini_test_started":
+            try:
+                AttentionMiniTestStartedData.model_validate(event.data)
+            except Exception:
+                pass  # data is optional; allow empty or extra fields
+        else:
+            try:
+                completed = AttentionMiniTestCompletedData.model_validate(event.data)
+            except Exception as e:
+                return JSONResponse(
+                    status_code=422,
+                    content={"detail": "Invalid mini-test completed data", "error": str(e)},
+                )
+        _persist_event(event, db)
+        if event.event_type == "attention_mini_test_completed":
+            attn_score, recommended = mini_test_score_to_action(completed.score)
+            event_ts_utc = event.timestamp.astimezone(timezone.utc)
+            metric = AttentionMetric(
+                user_id=event.user_id,
+                session_id=event.session_id,
+                lesson_id=None,
+                attention_score=attn_score,
+                avg_response_latency_ms=completed.time_taken_ms,
+                error_rate=None,
+                hour_of_day=event_ts_utc.hour,
+                day_of_week=event_ts_utc.weekday(),
+            )
+            db.add(metric)
+        db.commit()
+        if event.event_type == "attention_mini_test_completed":
+            attn_score, recommended = mini_test_score_to_action(completed.score)
+            return JSONResponse(
+                status_code=202,
+                content={
+                    "detail": "Mini-test event accepted and stored.",
+                    "attention_score": attn_score,
+                    "recommended_action": recommended,
+                },
+            )
+        return JSONResponse(
+            status_code=202,
+            content={"detail": "Mini-test event accepted and stored."},
+        )
+
+    if event.event_type in GAZE_EVENT_TYPES:
+        if not settings.ENABLE_GAZE_TELEMETRY:
+            return JSONResponse(status_code=202, content={"detail": "Gaze telemetry disabled."})
+        session_row = db.get(SessionModel, event.session_id)
+        if session_row is None:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Unknown session_id. Create a session before logging events."},
+            )
+        try:
+            GazeAttentionLikelihoodData.model_validate(event.data)
+        except Exception as e:
+            return JSONResponse(
+                status_code=422,
+                content={"detail": "Invalid gaze_attention_likelihood payload", "error": str(e)},
+            )
+        _persist_event(event, db)
+        db.commit()
+        return JSONResponse(status_code=202, content={"detail": "Gaze telemetry stored."})
+
+    if event.event_type in SELF_REPORT_EVENT_TYPES:
+        session_row = db.get(SessionModel, event.session_id)
+        if session_row is None:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Unknown session_id. Create a session before logging events."},
+            )
+        try:
+            AttentionSelfReportData.model_validate(event.data)
+        except Exception as e:
+            return JSONResponse(
+                status_code=422,
+                content={"detail": "Invalid attention_self_report data", "error": str(e)},
+            )
+        _persist_event(event, db)
+        db.commit()
+        return JSONResponse(status_code=202, content={"detail": "Self-report stored."})
+
     if event.event_type != "question_answered":
-        # For non-question events we simply acknowledge for now.
+        if event.event_type in PERSIST_ONLY_EVENT_TYPES:
+            session_row = db.get(SessionModel, event.session_id)
+            if session_row is None:
+                return JSONResponse(
+                    status_code=400,
+                    content={"detail": "Unknown session_id. Create a session before logging events."},
+                )
+            _persist_event(event, db)
+            db.commit()
+            return JSONResponse(
+                status_code=202,
+                content={"detail": "Event accepted and stored."},
+            )
         return JSONResponse(status_code=202, content={"detail": "Event accepted (ignored for attention)."})
 
     # Validate session exists before updating Redis; invalid sessions must not pollute drift state.
@@ -66,18 +201,8 @@ def ingest_event(event: Event, db: Session = Depends(get_db)):
         except (ValueError, TypeError):
             lesson_id = None
 
-    # Persist raw event into events.user_events for analytics/debugging.
+    _persist_event(event, db)
     event_ts_utc = event.timestamp.astimezone(timezone.utc)
-    user_event = UserEvent(
-        user_id=event.user_id,
-        session_id=event.session_id,
-        event_type=event.event_type,
-        event_data={
-            "timestamp": event_ts_utc.isoformat(),
-            "data": event.data,
-        },
-    )
-    db.add(user_event)
 
     features: AttentionFeatures = update_features_and_compute(
         user_id=str(event.user_id),
@@ -88,11 +213,33 @@ def ingest_event(event: Event, db: Session = Depends(get_db)):
     )
     score, _details = compute_attention_score(features)
     rationale = build_rationale(features, score)
-    drift, recommended_action = evaluate_drift(
+    drift, recommended_action, drift_entered = evaluate_drift(
         user_id=str(event.user_id),
         session_id=str(event.session_id),
         score=score,
     )
+
+    if drift_entered:
+        action_taken = "break_suggested" if recommended_action == "break" else "recap_triggered"
+        drift_event = Event(
+            event_type="attention_drift_detected",
+            timestamp=event.timestamp,
+            user_id=event.user_id,
+            session_id=event.session_id,
+            data={
+                "attention_score": score,
+                "response_latency_ms": int(latency_ms) if latency_ms is not None else None,
+                "error_rate": float(features.err_norm),
+                "action_taken": action_taken,
+            },
+        )
+        _persist_event(drift_event, db)
+        record_attention_signal(
+            event.user_id,
+            event.session_id,
+            recommended_action,
+            rationale,
+        )
 
     # Use the event's timestamp (in UTC) for time buckets so analytics can
     # reason about peak hours and weekdays.
@@ -300,10 +447,13 @@ def get_attention_summary(
 
 @router.get("/dashboard")
 def get_dashboard():
-    """Placeholder dashboard endpoint (to be expanded with real aggregates)."""
+    """Deprecated: use GET /analytics/dashboard/{user_id} for dashboard data."""
     return JSONResponse(
         status_code=200,
-        content={"detail": "Analytics dashboard implementation pending.", "status": "ok"},
+        content={
+            "detail": "Deprecated. Use GET /api/v1/analytics/dashboard/{user_id} with a user UUID.",
+            "deprecated": True,
+        },
     )
 
 
