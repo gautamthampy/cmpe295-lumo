@@ -24,7 +24,9 @@ class Settings(BaseSettings):
     # JWT
     JWT_SECRET: str = "dev-secret-change-in-production"
     JWT_ALGORITHM: str = "HS256"
-    JWT_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
+    JWT_EXPIRE_MINUTES: int = 60 * 24  # 24 hours for parents
+    STUDENT_TOKEN_EXPIRE_MINUTES: int = 60 * 8  # 8 hours for students (sessionStorage)
+    BCRYPT_ROUNDS: int = 12
 
     # Gemini
     GEMINI_API_KEY: str = ""
@@ -38,7 +40,19 @@ class Settings(BaseSettings):
     ENABLE_GAZE_TELEMETRY: bool = False
 
     # CORS
-    CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:8000"]
+    CORS_ORIGINS: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:3002",
+        "http://localhost:3003",
+        "http://localhost:8000",
+    ]
+
+    # LLM (Google Gemini API)
+    #GEMINI_API_KEY: str = ""
+    #GEMINI_MODEL: str = "gemini-2.5-flash"
+    #GEMINI_MAX_TOKENS: int = 8192
+    #GEMINI_TEMPERATURE: float = 0.7
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 

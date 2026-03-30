@@ -11,7 +11,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { lessonsAPI } from '@/lib/api';
-import type { AccessibilityIssue, InteractiveActivity, ActivityResult } from '@/lib/types';
+import type { AccessibilityIssue, InteractiveActivity } from '@/lib/types';
 import InteractiveBlock from '@/components/interactive/InteractiveBlock';
 
 interface MdxEditorProps {
@@ -174,7 +174,7 @@ export default function MdxEditor({
                     <InteractiveBlock
                       key={seg.activity.id}
                       activity={seg.activity}
-                      onResult={(_r: ActivityResult) => {/* preview-only, no-op */}}
+                      onResult={() => {/* preview-only, no-op */}}
                     />
                   )
                 )}

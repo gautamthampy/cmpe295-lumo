@@ -36,7 +36,7 @@ export default function AgentPanel() {
                         <span className="text-xs font-bold text-amber-600">Focus Coach</span>
                     </div>
                     <p className="text-sm text-slate-700">
-                        You've been studying for 20 minutes with great focus! Don't forget to blink and stretch.
+                        You&apos;ve been studying for 20 minutes with great focus! Don&apos;t forget to blink and stretch.
                     </p>
                 </div>
 

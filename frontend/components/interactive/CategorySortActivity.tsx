@@ -8,18 +8,21 @@ interface Props {
 }
 
 export default function CategorySortActivity({ activity, onResult }: Props) {
-  const { categories, prompt } = activity.data;
-  const allItems = categories.flatMap((c) => c.items).sort(() => Math.random() - 0.5);
+  const { categories = [], prompt } = activity.data ?? {};
+  const allItems = categories.flatMap((c) => c.items ?? []).sort(() => Math.random() - 0.5);
   const [unsorted] = useState<string[]>(allItems);
   const [placements, setPlacements] = useState<Record<string, string>>({}); // item -> categoryName
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [correct, setCorrect] = useState<boolean | null>(null);
   const startRef = useRef(Date.now());
+  if (!categories.length) {
+    return <div className="glass rounded-2xl p-6 my-4 text-sm text-slate-400">Invalid activity data.</div>;
+  }
 
   // Build a lookup: item -> correct category
   const correctMap: Record<string, string> = {};
-  categories.forEach((cat) => cat.items.forEach((item) => { correctMap[item] = cat.name; }));
+  categories.forEach((cat) => (cat.items ?? []).forEach((item) => { correctMap[item] = cat.name; }));
 
   function handleItemClick(item: string) {
     if (submitted) return;
@@ -93,7 +96,6 @@ export default function CategorySortActivity({ activity, onResult }: Props) {
               <div className="flex flex-wrap gap-1">
                 {catItems.map((item) => {
                   const isCorrect = submitted && correctMap[item] === cat.name;
-                  const isWrong = submitted && correctMap[item] !== cat.name;
                   return (
                     <span key={item} className={`px-2 py-1 rounded text-xs font-medium ${
                       submitted

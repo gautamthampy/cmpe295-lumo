@@ -234,7 +234,6 @@ export default function LessonDetailPage() {
               onClick={handleStartQuiz}
               disabled={quizLoading}
               className="btn-primary w-full py-3"
-              aria-label="Generate quiz for this lesson"
             >
               {quizLoading ? 'Generating Quiz…' : 'Start Quiz 🎯'}
             </button>

@@ -3,7 +3,7 @@ Google Gemini LLM service wrapper.
 Ready for Phase 2 integration into quiz, feedback, and lesson endpoints.
 """
 from functools import lru_cache
-from typing import Any, Optional
+from typing import Any, Optional, Dict
 import logging
 
 logger = logging.getLogger(__name__)
@@ -158,19 +158,42 @@ Output ONLY the Markdown content with embedded interactive blocks, no preamble o
         correct_answer: str,
         student_answer: str,
         is_correct: bool,
-    ) -> str:
-        """Generate personalized feedback for a student's quiz answer."""
-        if not self._client:
-            return "Great effort! Keep practicing!" if is_correct else "Not quite — try again!"
+    ) -> Dict[str, str]:
+        """
+        Generate personalized feedback for a quiz answer
+        """
 
         prompt = f"""A student answered a quiz question.
         Question: {question}
         Correct answer: {correct_answer}
         Student's answer: {student_answer}
-        Result: {"Correct!" if is_correct else "Incorrect."}
+        Result: {'Correct' if is_correct else 'Incorrect'}
+        
+        Provide the response in strict JSON format with two keys:
+        1. "explanation": Brief explanation of why the answer is correct/incorrect (2 sentences).
+        2. "motivation": A short, encouraging motivational message (1 sentence).
 
-        Provide brief, encouraging feedback (2-3 sentences) appropriate for elementary students."""
-        return await self._generate_content(prompt)
+        Example:
+        {{
+            "explanation": "You selected X, but the correct answer is Y because...",
+            "motivation": "You're doing great, keep it up!"
+        }}
+        """
+
+        response_text = await self._generate_content(prompt)
+        
+        # Basic cleanup to ensure JSON parsing (remove markdown fences if present)
+        clean_text = response_text.replace("```json", "").replace("```", "").strip()
+        
+        import json
+        try:
+            return json.loads(clean_text)
+        except json.JSONDecodeError:
+            # Fallback if model fails to generate valid JSON
+            return {
+                "explanation": response_text,
+                "motivation": "Keep trying!"
+            }
 
     async def _generate_content(
         self,
