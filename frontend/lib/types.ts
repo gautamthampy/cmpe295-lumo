@@ -149,6 +149,49 @@ export interface QuizResponse {
   generated_at: string;
 }
 
+export interface QuizGenerateRequest {
+  lesson_id: string;
+  user_id: string;
+  misconception_tags: string[];
+  subject?: string;
+  grade_level?: number;
+  question_count?: number;
+  difficulty?: string;
+}
+
+export interface QuizAnswer {
+  question_id: string;
+  selected_option_id: string;
+}
+
+export interface QuizSubmitRequest {
+  quiz_id: string;
+  user_id: string;
+  answers: QuizAnswer[];
+}
+
+export interface QuestionResult {
+  question_id: string;
+  question_text: string;
+  selected_option_id: string;
+  correct_option_id: string;
+  is_correct: boolean;
+  misconception_triggered: string | null;
+}
+
+export interface QuizSubmitResponse {
+  quiz_id: string;
+  score: number;
+  correct_count: number;
+  total_questions: number;
+  passed: boolean;
+  pass_threshold: number;
+  difficulty: string;
+  results: QuestionResult[];
+  misconceptions_triggered: string[];
+  rationale: string;
+}
+
 // ---- Analytics ----
 
 export interface AnalyticsEvent {

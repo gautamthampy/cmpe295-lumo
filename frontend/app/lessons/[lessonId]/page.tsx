@@ -4,8 +4,15 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import LessonViewer, { type LessonSection } from '@/components/lessons/LessonViewer';
-import { lessonsAPI, mockAPI } from '@/lib/api';
-import type { RenderedLessonResponse, QuizResponse, AccessibilityIssue, ActivityResult } from '@/lib/types';
+import { lessonsAPI, mockAPI, quizzesAPI } from '@/lib/api';
+import type {
+  RenderedLessonResponse,
+  QuizResponse,
+  QuizSubmitResponse,
+  AccessibilityIssue,
+  ActivityResult,
+  QuizAnswer,
+} from '@/lib/types';
 
 const DEMO_USER_ID = '00000000-0000-0000-0000-000000000001';
 const DEMO_SESSION_ID = '00000000-0000-0000-0000-000000000002';
@@ -51,8 +58,10 @@ export default function LessonDetailPage() {
 
   const [quizResult, setQuizResult] = useState<QuizResponse | null>(null);
   const [quizLoading, setQuizLoading] = useState(false);
+  const [quizSubmitting, setQuizSubmitting] = useState(false);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, string>>({});
   const [quizSubmitted, setQuizSubmitted] = useState(false);
+  const [submitResult, setSubmitResult] = useState<QuizSubmitResponse | null>(null);
   const [lessonDone, setLessonDone] = useState(false);
   const activityResults = useRef<ActivityResult[]>([]);
 
@@ -82,54 +91,88 @@ export default function LessonDetailPage() {
     setSelectedAnswers({});
     setQuizResult(null);
     setQuizSubmitted(false);
+    setSubmitResult(null);
     try {
-      const res = await mockAPI.generateQuiz({
+      const res = await quizzesAPI.generate({
         lesson_id: lessonId,
         user_id: DEMO_USER_ID,
         misconception_tags: rendered.misconception_tags,
+        subject: rendered.quiz_context.subject,
+        grade_level: rendered.quiz_context.grade_level,
+        question_count: rendered.quiz_context.suggested_question_count,
       });
       setQuizResult(res.data);
     } catch {
-      setError('Failed to generate quiz');
+      // Fall back to mock endpoint if the real one fails
+      try {
+        const res = await mockAPI.generateQuiz({
+          lesson_id: lessonId,
+          user_id: DEMO_USER_ID,
+          misconception_tags: rendered.misconception_tags,
+        });
+        setQuizResult(res.data);
+      } catch {
+        setError('Failed to generate quiz');
+      }
     } finally {
       setQuizLoading(false);
     }
   };
 
-  const handleSubmitQuiz = () => {
+  const handleSubmitQuiz = async () => {
     if (!quizResult) return;
-    setQuizSubmitted(true);
+    setQuizSubmitting(true);
 
-    const correctCount = quizResult.questions.filter((q) => {
-      const chosen = selectedAnswers[q.question_id];
-      const opt = q.options.find((o) => o.option_id === chosen);
-      return opt && !opt.is_distractor;
-    }).length;
+    const answers: QuizAnswer[] = quizResult.questions.map((q) => ({
+      question_id: q.question_id,
+      selected_option_id: selectedAnswers[q.question_id] ?? '',
+    }));
 
-    const quizScore = quizResult.questions.length > 0
-      ? correctCount / quizResult.questions.length
-      : 0;
+    try {
+      const res = await quizzesAPI.submit(quizResult.quiz_id, {
+        quiz_id: quizResult.quiz_id,
+        user_id: DEMO_USER_ID,
+        answers,
+      });
+      setSubmitResult(res.data);
 
-    const misconceptionsTriggered = activityResults.current
-      .filter((r) => !r.correct && r.misconceptionTag)
-      .map((r) => r.misconceptionTag as string);
-
-    mockAPI.ingestEvent({
-      event_type: 'lesson_completed',
-      user_id: DEMO_USER_ID,
-      session_id: DEMO_SESSION_ID,
-      event_data: {
-        lesson_id: lessonId,
-        sections_completed: sections.length,
-        quiz_score: quizScore,
-        quiz_passed: quizScore >= QUIZ_PASS_THRESHOLD,
-        time_spent_seconds: Math.round((Date.now() - startTimeRef.current) / 1000),
-        activity_results: activityResults.current,
-        misconceptions_triggered: [...new Set(misconceptionsTriggered)],
-      },
-    }).catch(() => {});
-
-    setLessonDone(true);
+      mockAPI.ingestEvent({
+        event_type: 'lesson_completed',
+        user_id: DEMO_USER_ID,
+        session_id: DEMO_SESSION_ID,
+        event_data: {
+          lesson_id: lessonId,
+          sections_completed: sections.length,
+          quiz_score: res.data.score,
+          quiz_passed: res.data.passed,
+          time_spent_seconds: Math.round((Date.now() - startTimeRef.current) / 1000),
+          misconceptions_triggered: res.data.misconceptions_triggered,
+        },
+      }).catch(() => {});
+    } catch {
+      // If submit endpoint fails, fall back to client-side scoring
+      const correctCount = quizResult.questions.filter((q) => {
+        const opt = q.options.find((o) => o.option_id === selectedAnswers[q.question_id]);
+        return opt && !opt.is_distractor;
+      }).length;
+      const score = quizResult.questions.length > 0 ? correctCount / quizResult.questions.length : 0;
+      setSubmitResult({
+        quiz_id: quizResult.quiz_id,
+        score: Math.round(score * 100) / 100,
+        correct_count: correctCount,
+        total_questions: quizResult.questions.length,
+        passed: score >= QUIZ_PASS_THRESHOLD,
+        pass_threshold: QUIZ_PASS_THRESHOLD,
+        difficulty: 'medium',
+        results: [],
+        misconceptions_triggered: [],
+        rationale: '',
+      });
+    } finally {
+      setQuizSubmitting(false);
+      setQuizSubmitted(true);
+      setLessonDone(true);
+    }
   };
 
   const handleLessonComplete = () => {};
@@ -241,96 +284,145 @@ export default function LessonDetailPage() {
 
           {quizResult && (
             <div className="mt-2 border-t border-violet-50 pt-6" aria-live="polite">
-              <h3 className="text-lg font-bold text-slate-800 mb-5">
+              <h3 className="text-lg font-bold text-slate-800 mb-1">
                 Quiz — {quizResult.questions.length} Questions
               </h3>
+              <p className="text-xs text-slate-400 mb-5 capitalize">
+                Difficulty: {quizResult.questions[0]?.difficulty ?? 'medium'}
+              </p>
+
               <ol className="space-y-5">
-                {quizResult.questions.map((q, i) => (
-                  <li key={q.question_id} className="bg-violet-50/50 rounded-2xl p-5 border border-violet-100">
-                    <p className="font-semibold text-slate-800 mb-4">
-                      {i + 1}. {q.question_text}
-                    </p>
-                    <fieldset>
-                      <legend className="sr-only">Choose an answer for question {i + 1}</legend>
-                      <div className="space-y-2">
-                        {q.options.map((opt) => {
-                          const selected = selectedAnswers[q.question_id] === opt.option_id;
-                          const isCorrect = !opt.is_distractor;
-                          return (
-                            <label
-                              key={opt.option_id}
-                              className={`flex items-start gap-3 px-4 py-3 rounded-xl border-2 cursor-pointer transition-all ${
-                                quizSubmitted
-                                  ? isCorrect
-                                    ? 'bg-emerald-50 border-emerald-300 text-emerald-800 font-medium'
+                {quizResult.questions.map((q, i) => {
+                  const serverResult = submitResult?.results.find(
+                    (r) => r.question_id === q.question_id,
+                  );
+                  return (
+                    <li key={q.question_id} className="bg-violet-50/50 rounded-2xl p-5 border border-violet-100">
+                      <p className="font-semibold text-slate-800 mb-4">
+                        {i + 1}. {q.question_text}
+                      </p>
+                      <fieldset>
+                        <legend className="sr-only">Choose an answer for question {i + 1}</legend>
+                        <div className="space-y-2">
+                          {q.options.map((opt) => {
+                            const selected = selectedAnswers[q.question_id] === opt.option_id;
+                            const isCorrect = !opt.is_distractor;
+                            const wasChosen = serverResult?.selected_option_id === opt.option_id;
+                            return (
+                              <label
+                                key={opt.option_id}
+                                className={`flex items-start gap-3 px-4 py-3 rounded-xl border-2 cursor-pointer transition-all ${
+                                  quizSubmitted
+                                    ? isCorrect
+                                      ? 'bg-emerald-50 border-emerald-300 text-emerald-800 font-medium'
+                                      : wasChosen
+                                      ? 'bg-red-50 border-red-200 text-red-800'
+                                      : 'bg-white border-slate-200 text-slate-700'
                                     : selected
-                                    ? 'bg-red-50 border-red-200 text-red-700'
-                                    : 'bg-white border-slate-100 text-slate-400'
-                                  : selected
-                                  ? 'bg-white border-violet-300 shadow-sm'
-                                  : 'bg-white border-slate-100 hover:border-violet-200'
-                              }`}
-                            >
-                              <input
-                                type="radio"
-                                name={`q-${q.question_id}`}
-                                value={opt.option_id}
-                                checked={selected}
-                                disabled={quizSubmitted}
-                                onChange={() =>
-                                  setSelectedAnswers((prev) => ({
-                                    ...prev,
-                                    [q.question_id]: opt.option_id,
-                                  }))
-                                }
-                                className="mt-0.5 accent-violet-600"
-                              />
-                              <span className="text-sm flex-1">
-                                <span className="font-mono mr-1 text-violet-400">
-                                  {opt.option_id.toUpperCase()}.
-                                </span>
-                                {opt.option_text}
-                                {quizSubmitted && opt.is_distractor && opt.misconception_type && (
-                                  <span className="block text-xs text-red-500 mt-0.5">
-                                    Misconception: {opt.misconception_type}
+                                    ? 'bg-white border-violet-400 shadow-sm text-slate-900'
+                                    : 'bg-white border-slate-200 text-slate-800 hover:border-violet-300'
+                                }`}
+                              >
+                                <input
+                                  type="radio"
+                                  name={`q-${q.question_id}`}
+                                  value={opt.option_id}
+                                  checked={selected}
+                                  disabled={quizSubmitted}
+                                  onChange={() =>
+                                    setSelectedAnswers((prev) => ({
+                                      ...prev,
+                                      [q.question_id]: opt.option_id,
+                                    }))
+                                  }
+                                  className="mt-0.5 accent-violet-600"
+                                />
+                                <span className="text-sm flex-1">
+                                  <span className="font-mono mr-1 text-violet-700">
+                                    {opt.option_id.toUpperCase()}.
                                   </span>
-                                )}
-                              </span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </fieldset>
-                  </li>
-                ))}
+                                  {opt.option_text}
+                                  {quizSubmitted && opt.is_distractor && opt.misconception_type && wasChosen && (
+                                    <span className="block text-xs text-red-500 mt-0.5">
+                                      Misconception: {opt.misconception_type}
+                                    </span>
+                                  )}
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </fieldset>
+                    </li>
+                  );
+                })}
               </ol>
 
               {!quizSubmitted ? (
                 <button
                   onClick={handleSubmitQuiz}
-                  disabled={Object.keys(selectedAnswers).length < quizResult.questions.length}
+                  disabled={
+                    quizSubmitting ||
+                    Object.keys(selectedAnswers).length < quizResult.questions.length
+                  }
                   className="btn-primary mt-6 w-full py-3 disabled:opacity-40"
                 >
-                  Submit Quiz
+                  {quizSubmitting ? 'Scoring…' : 'Submit Quiz'}
                 </button>
-              ) : (
-                <div className="mt-6 p-5 bg-violet-50 rounded-2xl text-center border border-violet-100" aria-live="assertive">
-                  <p className="font-bold text-lg text-slate-800">
-                    {quizResult.questions.filter((q) => {
-                      const opt = q.options.find((o) => o.option_id === selectedAnswers[q.question_id]);
-                      return opt && !opt.is_distractor;
-                    }).length}{' '}
-                    / {quizResult.questions.length} correct
+              ) : submitResult && (
+                <div
+                  className={`mt-6 p-5 rounded-2xl border text-center ${
+                    submitResult.passed
+                      ? 'bg-emerald-50 border-emerald-200'
+                      : 'bg-amber-50 border-amber-200'
+                  }`}
+                  aria-live="assertive"
+                >
+                  <p className="font-bold text-2xl text-slate-800 mb-1">
+                    {submitResult.correct_count} / {submitResult.total_questions}
                   </p>
-                  {lessonDone && rendered.next_lesson_id && (
+                  <p className={`text-sm font-semibold mb-3 ${submitResult.passed ? 'text-emerald-700' : 'text-amber-700'}`}>
+                    {submitResult.passed ? 'Passed!' : 'Not quite — keep going!'}
+                  </p>
+
+                  {submitResult.rationale && (
+                    <p className="text-xs text-slate-500 italic mb-4 px-2">
+                      {submitResult.rationale}
+                    </p>
+                  )}
+
+                  {submitResult.misconceptions_triggered.length > 0 && (
+                    <div className="mb-4 text-left bg-white rounded-xl p-3 border border-amber-100">
+                      <p className="text-xs font-bold text-amber-700 uppercase tracking-widest mb-1">
+                        Misconceptions to Review
+                      </p>
+                      <div className="flex flex-wrap gap-1">
+                        {submitResult.misconceptions_triggered.map((mc) => (
+                          <span key={mc} className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
+                            {mc}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {lessonDone && rendered.next_lesson_id && submitResult.passed && (
                     <Link
                       href={`/lessons/${rendered.next_lesson_id}`}
-                      className="btn-primary mt-3 inline-block px-6 py-2"
+                      className="btn-primary mt-1 inline-block px-6 py-2"
                     >
                       Next Lesson →
                     </Link>
                   )}
-                  {lessonDone && !rendered.next_lesson_id && (
+                  {lessonDone && !submitResult.passed && (
+                    <button
+                      onClick={handleStartQuiz}
+                      className="mt-1 text-sm font-semibold text-violet-600 hover:text-violet-800 underline"
+                    >
+                      Try again
+                    </button>
+                  )}
+                  {lessonDone && !rendered.next_lesson_id && submitResult.passed && (
                     <p className="mt-2 text-sm text-emerald-700 font-medium">
                       You have completed all lessons in this path!
                     </p>

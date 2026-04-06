@@ -298,7 +298,7 @@ async def render_lesson(
     # Learning path: find the next lesson (first lesson that lists this one as a prerequisite)
     next_lesson = (
         db.query(Lesson)
-        .filter(Lesson.prerequisites.contains([lesson.lesson_id]))
+        .filter(lesson.lesson_id == any_(Lesson.prerequisites))
         .first()
     )
     next_lesson_id = next_lesson.lesson_id if next_lesson else None
