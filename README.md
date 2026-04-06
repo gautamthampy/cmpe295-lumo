@@ -45,6 +45,7 @@ $env:JWT_SECRET="replace-this-with-a-long-local-dev-secret"
 $env:AUTO_CREATE_TABLES="true"
 $env:APP_BASE_URL="http://127.0.0.1:3000"
 $env:BACKEND_CORS_ORIGINS="http://127.0.0.1:3000,http://localhost:3000"
+$env:MAIL_DELIVERY_MODE="log"
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
@@ -65,6 +66,21 @@ Then open:
 4. `http://127.0.0.1:3000/student-login`
 
 This path matches the currently implemented parent-auth experience and uses a local SQLite database file at `backend/local-auth.db`.
+
+To deliver real emails instead of logging them locally, set:
+
+```powershell
+$env:MAIL_DELIVERY_MODE="smtp"
+$env:MAIL_FROM_EMAIL="noreply@example.com"
+$env:MAIL_FROM_NAME="LUMO"
+$env:SMTP_HOST="smtp.example.com"
+$env:SMTP_PORT="587"
+$env:SMTP_USERNAME="smtp-user"
+$env:SMTP_PASSWORD="smtp-password"
+$env:SMTP_USE_TLS="true"
+```
+
+With `MAIL_DELIVERY_MODE="log"`, verification links, reset links, and student codes are written to the backend log for local development while debug-token mode can still surface them in API responses when enabled.
 
 ### SSL Certificates
 

@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=Manrope:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap");
 
 @tailwind base;
 @tailwind components;
@@ -41,4 +41,43 @@ a {
   background-image: radial-gradient(rgba(28, 28, 23, 0.035) 0.6px, transparent 0.6px);
   background-size: 22px 22px;
   opacity: 0.15;
+}
+
+.glass-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.glass-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(140deg, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0));
+  opacity: 0.8;
+}
+
+.lesson-prose h3,
+.lesson-prose h4 {
+  margin-bottom: 0.75rem;
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: #1f1b00;
+}
+
+.lesson-prose p,
+.lesson-prose li {
+  font-family: "Be Vietnam Pro", sans-serif;
+}
+
+.lesson-prose ul,
+.lesson-prose ol {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.lesson-prose strong {
+  font-weight: 800;
 }

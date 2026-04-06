@@ -6,6 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.auth import EmailVerificationToken, ParentUser, PasswordResetToken, Student
+from app.services.auth_service import get_auth_service
+from app.services.notifications import EmailDeliveryError
 
 
 def sign_up(client, email: str = "parent@example.com", password: str = "Password123"):
@@ -63,6 +65,19 @@ def test_signup_success_returns_verification_token(client):
     payload = response.json()
     assert payload["message"] == "Account created. Check your email to verify your account."
     assert payload["verificationToken"]
+
+
+def test_signup_rolls_back_when_verification_email_delivery_fails(client, db_session: Session, monkeypatch):
+    def fail_delivery(*args, **kwargs):
+        raise EmailDeliveryError("SMTP unavailable")
+
+    monkeypatch.setattr("app.api.routes.auth.send_verification_email", fail_delivery)
+
+    response = sign_up(client, email="mailfail@example.com")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Unable to send verification email right now."
+    assert db_session.scalar(select(ParentUser).where(ParentUser.email == "mailfail@example.com")) is None
 
 
 def test_signup_rejects_duplicate_email(client):
@@ -389,3 +404,75 @@ def test_authenticated_parent_can_create_student_profile(client, db_session: Ses
     assert response.status_code == 201
     assert response.json()["display_name"] == "Avery"
     assert response.json()["grade_level"] == 4
+
+
+def test_subject_catalog_returns_default_subjects(client):
+    response = client.get("/api/v1/auth/subjects")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {"subject_id": "math", "name": "Mathematics", "slug": "math"},
+        {"subject_id": "science", "name": "Science", "slug": "science"},
+        {"subject_id": "language-arts-writing", "name": "Language Arts - Writing", "slug": "language-arts-writing"},
+        {"subject_id": "social-studies", "name": "Social Studies", "slug": "social-studies"},
+    ]
+
+
+def test_subject_catalog_can_filter_by_grade_level(client):
+    response = client.get("/api/v1/auth/subjects", params={"grade_level": 2})
+
+    assert response.status_code == 200
+    assert [item["slug"] for item in response.json()] == ["math", "science", "language-arts-writing", "social-studies"]
+
+
+def test_grade_curriculum_catalog_returns_seeded_grade_two_tree(client):
+    response = client.get("/api/v1/auth/catalog", params={"grade_level": 2})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["grade_level"] == 2
+    assert [subject["subject_slug"] for subject in payload["subjects"]] == ["math", "science", "language-arts-writing", "social-studies"]
+    assert payload["subjects"][0]["curriculum_provider"] == "Origo Stepping Stones 2.0"
+    assert payload["subjects"][0]["modules"][0]["module_id"] == "MATH_G2_M1"
+    assert payload["subjects"][0]["modules"][0]["lessons"][0]["lesson_id"] == "MATH_G2_M1_L1"
+
+
+def test_grade_curriculum_catalog_rejects_unseeded_grade(client):
+    response = client.get("/api/v1/auth/catalog", params={"grade_level": 5})
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "No curriculum catalog is available for that grade level yet."
+
+
+def test_student_session_reports_unauthenticated_without_bearer_token(client):
+    response = client.get("/api/v1/auth/student-session")
+
+    assert response.status_code == 200
+    assert response.json() == {"authenticated": False, "student": None}
+
+
+def test_student_session_returns_student_summary_for_valid_student_token(client, db_session: Session):
+    parent = create_verified_parent(client, db_session, email="studentsession@example.com")
+    student = create_student(db_session, parent, display_name="Maya", grade_level=4)
+    token = get_auth_service().create_student_token(
+        student.student_id,
+        parent.id,
+        display_name=student.display_name,
+        grade_level=student.grade_level,
+    )
+
+    response = client.get(
+        "/api/v1/auth/student-session",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "authenticated": True,
+        "student": {
+            "student_id": student.student_id,
+            "display_name": "Maya",
+            "grade_level": 4,
+            "avatar_id": "owl",
+        },
+    }

@@ -22,6 +22,8 @@ test-results/
 certs/
 backend/local-auth.db
 backend/local-auth.db-*
+backend/lumo-e2e.db
+backend/lumo-e2e.db-*
 .DS_Store
 Thumbs.db
 playwright-report/

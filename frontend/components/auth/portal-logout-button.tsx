@@ -4,10 +4,12 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { authRequest, authRoutes, type AuthMessage } from "@/lib/auth";
+import { useAuthStore } from "@/lib/store/auth";
 
 export function PortalLogoutButton() {
   const router = useRouter();
   const [pending, setPending] = useState(false);
+  const logout = useAuthStore((s) => s.logout);
 
   async function handleLogout() {
     setPending(true);
@@ -17,6 +19,7 @@ export function PortalLogoutButton() {
         method: "POST",
       });
     } finally {
+      logout();
       router.replace("/sign-in");
       router.refresh();
       setPending(false);

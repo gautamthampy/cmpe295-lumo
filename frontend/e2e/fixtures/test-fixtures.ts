@@ -87,6 +87,11 @@ export const DEMO_SUBJECTS = [
 ];
 
 const AUTH_STORE_KEY = 'lumo-auth';
+const TOKEN_STORAGE_KEY = 'lumo_token';
+const ROLE_STORAGE_KEY = 'lumo_role';
+const DISPLAY_NAME_STORAGE_KEY = 'lumo_display_name';
+const GRADE_LEVEL_STORAGE_KEY = 'lumo_grade_level';
+const STUDENT_TOKEN_COOKIE_NAME = 'lumo_student_token';
 
 type Fixtures = {
   lessonData: LessonData;
@@ -198,16 +203,45 @@ export const test = base.extend<Fixtures>({
       },
 
       async injectStudentToken(page) {
-        await page.goto('/login');
+        await page.goto('/student-login');
         await page.evaluate(
-          ({ key, token }: { key: string; token: string }) => {
+          ({
+            key,
+            token,
+            tokenKey,
+            roleKey,
+            nameKey,
+            gradeKey,
+            cookieName,
+          }: {
+            key: string;
+            token: string;
+            tokenKey: string;
+            roleKey: string;
+            nameKey: string;
+            gradeKey: string;
+            cookieName: string;
+          }) => {
             const state = {
               state: { role: 'student', token, userId: 'student-demo-id', displayName: 'Alex' },
               version: 0,
             };
             sessionStorage.setItem(key, JSON.stringify(state));
+            sessionStorage.setItem(tokenKey, token);
+            sessionStorage.setItem(roleKey, 'student');
+            sessionStorage.setItem(nameKey, 'Alex');
+            sessionStorage.setItem(gradeKey, '3');
+            document.cookie = `${cookieName}=${encodeURIComponent(token)}; path=/; samesite=lax`;
           },
-          { key: AUTH_STORE_KEY, token: DEMO_STUDENT_TOKEN }
+          {
+            key: AUTH_STORE_KEY,
+            token: DEMO_STUDENT_TOKEN,
+            tokenKey: TOKEN_STORAGE_KEY,
+            roleKey: ROLE_STORAGE_KEY,
+            nameKey: DISPLAY_NAME_STORAGE_KEY,
+            gradeKey: GRADE_LEVEL_STORAGE_KEY,
+            cookieName: STUDENT_TOKEN_COOKIE_NAME,
+          }
         );
       },
     };

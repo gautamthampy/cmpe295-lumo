@@ -52,6 +52,13 @@ test.describe("auth session smoke", () => {
     await expect(page.getByRole("button", { name: /sign in/i })).toBeVisible();
   });
 
+  test("unauthenticated learn requests redirect to student login before the page renders", async ({ page }) => {
+    await page.goto("/learn");
+
+    await expect(page).toHaveURL(/\/student-login\?next=%2Flearn/);
+    await expect(page.getByRole("heading", { name: /ask your parent for help/i })).toBeVisible();
+  });
+
   test("verified parent can sign in, reach the protected portal, and log out", async ({ page, request }) => {
     const email = uniqueEmail("portal");
     const password = "Password123";
@@ -63,8 +70,8 @@ test.describe("auth session smoke", () => {
     await page.getByRole("button", { name: /^sign in$/i }).click();
 
     await expect(page).toHaveURL(/\/portal/);
-    await expect(page.getByRole("heading", { name: /parent portal session active/i })).toBeVisible();
-    await expect(page.getByRole("heading", { name: email })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /a calmer place to guide learning at home/i })).toBeVisible();
+  await expect(page.getByText(email)).toBeVisible();
 
     await page.getByRole("button", { name: /sign out/i }).click();
     await expect(page).toHaveURL(/\/sign-in/);
@@ -134,6 +141,37 @@ test.describe("auth session smoke", () => {
 
     await expect(page).toHaveURL(/\/learn/);
     await expect(page.getByRole('heading', { name: /hi, sam!/i })).toBeVisible();
+
+    await page.evaluate(() => sessionStorage.clear());
+    await page.goto('/learn');
+
+    await expect(page).toHaveURL(/\/student-login\?next=%2Flearn/);
+    await expect(page.getByRole('heading', { name: /ask your parent for help/i })).toBeVisible();
+  });
+
+  test("student login honors the protected next path after code verification", async ({ page, request }) => {
+    const email = uniqueEmail("student-next");
+    const password = "Password123";
+    await provisionVerifiedUser(request, email, password);
+    await signInViaApi(request, email, password);
+    await createStudentViaApi(request, { displayName: 'Nia', gradeLevel: 2, avatarId: 'owl' });
+
+    await page.goto('/student-login?next=%2Flearn%3Fsubject%3Dscience');
+    await page.getByPlaceholder(/parent's email address/i).fill(email);
+    const requestCodeResponsePromise = page.waitForResponse((response) => response.url().endsWith('/api/v1/auth/student-login/request-code'));
+    await page.getByRole('button', { name: /send my code/i }).click();
+
+    const requestCodeResponse = await requestCodeResponsePromise;
+    const requestCodePayload = (await requestCodeResponse.json()) as { loginCode?: string };
+    const loginCode = requestCodePayload.loginCode;
+    expect(loginCode).toBeTruthy();
+
+    for (const [index, digit] of loginCode!.split('').entries()) {
+      await page.getByLabel(`Code digit ${index + 1}`).fill(digit);
+    }
+
+    await expect(page).toHaveURL(/\/learn\?subject=science/);
+    await expect(page.getByRole('heading', { name: /hi, nia!/i })).toBeVisible();
   });
 
   test("parent dashboard can generate a child-specific code that signs the student in", async ({ page, request }) => {
@@ -149,7 +187,7 @@ test.describe("auth session smoke", () => {
     await page.getByRole('button', { name: /^sign in$/i }).click();
     await expect(page).toHaveURL(/\/portal/);
 
-    await page.getByRole('link', { name: /manage student access/i }).click();
+    await page.locator('header').getByRole('link', { name: /manage learners/i }).click();
     await expect(page).toHaveURL(/\/students/);
     await expect(page.getByRole('heading', { name: /student sign-in codes/i })).toBeVisible();
 
@@ -171,5 +209,48 @@ test.describe("auth session smoke", () => {
     await expect(page).toHaveURL(/\/learn/);
     await expect(page.getByRole('heading', { name: /hi, avery!/i })).toBeVisible();
     await expect(student.student_id).toBeTruthy();
+  });
+
+  test("new families can create a learner in the dashboard and immediately use the student-login path", async ({ page, request }) => {
+    const email = uniqueEmail("create-learner");
+    const password = "Password123";
+    await provisionVerifiedUser(request, email, password);
+
+    await page.goto('/sign-in');
+    await page.getByLabel('Email Address').fill(email);
+    await page.getByLabel('Password').fill(password);
+    await page.getByRole('button', { name: /^sign in$/i }).click();
+    await expect(page).toHaveURL(/\/portal/);
+
+    await page.locator('header').getByRole('link', { name: /manage learners/i }).click();
+    await expect(page).toHaveURL(/\/students/);
+    await expect(page.getByText(/no student profiles yet/i)).toBeVisible();
+
+    const createStudentResponsePromise = page.waitForResponse((response) => response.url().endsWith('/api/v1/auth/students'));
+    await page.getByLabel('Learner name').fill('Maya');
+    await page.getByLabel('Grade level').selectOption('4');
+    await page.getByRole('button', { name: /create learner profile/i }).click();
+
+    const createStudentResponse = await createStudentResponsePromise;
+    const student = (await createStudentResponse.json()) as { student_id: string; display_name: string };
+    expect(student.student_id).toBeTruthy();
+
+    await expect(page.getByText('Maya')).toBeVisible();
+
+    const generateCodeResponsePromise = page.waitForResponse((response) => response.url().endsWith(`/api/v1/auth/students/${student.student_id}/login-code`));
+    await page.getByRole('button', { name: /generate code for maya/i }).click();
+
+    const generateCodeResponse = await generateCodeResponsePromise;
+    const generateCodePayload = (await generateCodeResponse.json()) as { loginCode?: string };
+    const loginCode = generateCodePayload.loginCode;
+    expect(loginCode).toBeTruthy();
+
+    await page.goto('/student-login');
+    for (const [index, digit] of loginCode!.split('').entries()) {
+      await page.getByLabel(`Code digit ${index + 1}`).fill(digit);
+    }
+
+    await expect(page).toHaveURL(/\/learn/);
+    await expect(page.getByRole('heading', { name: /hi, maya!/i })).toBeVisible();
   });
 });

@@ -93,22 +93,6 @@ export function SignInForm() {
         <span>Keep me signed in for 30 days</span>
       </label>
       <PrimaryButton pending={pending}>Sign In</PrimaryButton>
-      <div className="relative py-1">
-        <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-outline-variant/20" />
-        </div>
-        <div className="relative flex justify-center">
-          <span className="bg-surface-container-lowest px-4 font-label text-xs uppercase tracking-[0.3em] text-outline">or continue with</span>
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <button type="button" disabled className="rounded-xl bg-surface-container-low px-4 py-3 font-label font-semibold text-on-surface-variant opacity-80">
-          Google
-        </button>
-        <button type="button" disabled className="rounded-xl bg-surface-container-low px-4 py-3 font-label font-semibold text-on-surface-variant opacity-80">
-          Apple
-        </button>
-      </div>
       <div className="space-y-6 pt-2 text-center">
         <p className="font-body text-lg text-on-surface-variant">
           Don&apos;t have an account?

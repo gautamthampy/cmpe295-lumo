@@ -1,15 +1,20 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from jose import JWTError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.models.auth import ParentUser, Student
+from app.models.catalog import CurriculumLesson, CurriculumModule, CurriculumSubject
 from app.schemas.auth import (
+    CurriculumLessonResponse,
+    CurriculumModuleResponse,
+    CurriculumSubjectResponse,
     ForgotPasswordRequest,
     ForgotPasswordResponse,
+    GradeCurriculumCatalogResponse,
     MessageResponse,
     ParentDashboardResponse,
     ResendVerificationRequest,
@@ -19,6 +24,8 @@ from app.schemas.auth import (
     SignInResponse,
     SignUpRequest,
     SignUpResponse,
+    StudentSessionResponse,
+    SubjectCatalogResponse,
     StudentAuthResponse,
     StudentCreateRequest,
     StudentLoginCodeIssueResponse,
@@ -43,6 +50,13 @@ from app.services.auth import (
     revoke_session,
 )
 from app.services.auth_service import get_auth_service
+from app.services.notifications import (
+    EmailDeliveryError,
+    send_password_reset_email,
+    send_student_login_code_email,
+    send_verification_email,
+)
+from app.services.catalog import get_grade_curriculum, list_curriculum_subjects
 from app.services.security import hash_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -91,15 +105,84 @@ def serialize_student(student: Student) -> StudentSummaryResponse:
     )
 
 
+def get_bearer_token(request: Request) -> str | None:
+    authorization_header = request.headers.get("Authorization")
+    if not authorization_header:
+        return None
+
+    scheme, _, token = authorization_header.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        return None
+
+    return token
+
+
+def get_current_student_from_bearer_token(request: Request, db: Session) -> Student | None:
+    token = get_bearer_token(request)
+    if not token:
+        return None
+
+    auth = get_auth_service()
+    try:
+        token_payload = auth.decode_token(token)
+    except JWTError:
+        return None
+
+    if token_payload.get("role") != "student":
+        return None
+
+    student_id = token_payload.get("sub")
+    if not isinstance(student_id, str):
+        return None
+
+    return db.get(Student, student_id)
+
+
 def build_student_auth_response(student: Student, settings: Settings) -> StudentAuthResponse:
     auth = get_auth_service()
-    access_token = auth.create_student_token(student.student_id, student.parent_user_id)
+    access_token = auth.create_student_token(
+        student.student_id,
+        student.parent_user_id,
+        display_name=student.display_name,
+        grade_level=student.grade_level,
+    )
     return StudentAuthResponse(
         message=f"Signed in as {student.display_name}.",
         authenticated=True,
         access_token=access_token,
         expires_in=settings.student_token_expire_minutes * 60,
         student=serialize_student(student),
+    )
+
+
+def serialize_subject_catalog(subject: CurriculumSubject) -> SubjectCatalogResponse:
+    return SubjectCatalogResponse(subject_id=subject.slug, name=subject.name, slug=subject.slug)
+
+
+def serialize_curriculum_lesson(lesson: CurriculumLesson) -> CurriculumLessonResponse:
+    return CurriculumLessonResponse(
+        lesson_id=lesson.external_id,
+        lesson_title=lesson.title,
+        learning_objectives=lesson.learning_objectives,
+        tags=list(lesson.tags or []),
+    )
+
+
+def serialize_curriculum_module(module: CurriculumModule) -> CurriculumModuleResponse:
+    return CurriculumModuleResponse(
+        module_id=module.external_id,
+        module_title=module.title,
+        semantic_description=module.semantic_description,
+        lessons=[serialize_curriculum_lesson(lesson) for lesson in module.lessons],
+    )
+
+
+def serialize_curriculum_subject(subject: CurriculumSubject) -> CurriculumSubjectResponse:
+    return CurriculumSubjectResponse(
+        subject_slug=subject.slug,
+        subject_name=subject.name,
+        curriculum_provider=subject.curriculum_provider,
+        modules=[serialize_curriculum_module(module) for module in subject.modules],
     )
 
 
@@ -113,6 +196,13 @@ def sign_up(payload: SignUpRequest, db: Session = Depends(get_db), settings: Set
     db.add(user)
     db.flush()
     verification_token = issue_verification_token(db, user)
+
+    try:
+        send_verification_email(settings, user.email, verification_token)
+    except EmailDeliveryError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to send verification email right now.") from exc
+
     db.commit()
 
     return SignUpResponse(
@@ -142,6 +232,11 @@ def resend_verification(
 
     if user is not None and not user.is_email_verified:
         verification_token = issue_verification_token(db, user)
+        try:
+            send_verification_email(settings, user.email, verification_token)
+        except EmailDeliveryError as exc:
+            db.rollback()
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to send verification email right now.") from exc
         db.commit()
 
     return SignUpResponse(
@@ -182,7 +277,14 @@ def forgot_password(
 
     if user is not None:
         reset_token = issue_password_reset_token(db, user)
-        db.commit()
+        try:
+            send_password_reset_email(settings, user.email, reset_token)
+        except EmailDeliveryError:
+            db.rollback()
+            logger.warning("Password reset email delivery failed for %s.", user.email)
+            reset_token = None
+        else:
+            db.commit()
 
     return ForgotPasswordResponse(
         message="If an account exists for that email, a password reset link is on the way.",
@@ -239,6 +341,18 @@ def read_session(
     )
 
 
+@router.get("/student-session", response_model=StudentSessionResponse)
+def read_student_session(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> StudentSessionResponse:
+    student = get_current_student_from_bearer_token(request, db)
+    if student is None:
+        return StudentSessionResponse(authenticated=False)
+
+    return StudentSessionResponse(authenticated=True, student=serialize_student(student))
+
+
 @router.get("/me", response_model=ParentDashboardResponse)
 def read_parent_dashboard(
     request: Request,
@@ -248,6 +362,30 @@ def read_parent_dashboard(
     parent_user = get_current_parent_user(request, db, settings)
     students = [serialize_student(student) for student in sorted(parent_user.students, key=lambda item: item.created_at)]
     return ParentDashboardResponse(parent_id=parent_user.id, email=parent_user.email, students=students)
+
+
+@router.get("/subjects", response_model=list[SubjectCatalogResponse])
+def list_subject_catalog(
+    grade_level: int | None = Query(default=None, ge=1, le=12),
+    db: Session = Depends(get_db),
+) -> list[SubjectCatalogResponse]:
+    subjects = list_curriculum_subjects(db, grade_level)
+    return [serialize_subject_catalog(subject) for subject in subjects]
+
+
+@router.get("/catalog", response_model=GradeCurriculumCatalogResponse)
+def read_grade_curriculum_catalog(
+    grade_level: int = Query(..., ge=1, le=12),
+    db: Session = Depends(get_db),
+) -> GradeCurriculumCatalogResponse:
+    subjects = get_grade_curriculum(db, grade_level)
+    if not subjects:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No curriculum catalog is available for that grade level yet.")
+
+    return GradeCurriculumCatalogResponse(
+        grade_level=grade_level,
+        subjects=[serialize_curriculum_subject(subject) for subject in subjects],
+    )
 
 
 @router.post("/students", response_model=StudentSummaryResponse, status_code=status.HTTP_201_CREATED)
@@ -290,7 +428,19 @@ def request_student_login_code(
         )
         if issued is not None:
             login_code, _ = issued
-            db.commit()
+            try:
+                send_student_login_code_email(
+                    settings,
+                    parent_user.email,
+                    login_code,
+                    expires_in_minutes=settings.student_login_code_ttl_minutes,
+                )
+            except EmailDeliveryError:
+                db.rollback()
+                logger.warning("Student login code email delivery failed for %s.", parent_user.email)
+                login_code = None
+            else:
+                db.commit()
 
     return StudentLoginCodeIssueResponse(
         message="If that family account is available, a student sign-in code is on the way.",
@@ -384,6 +534,19 @@ def generate_student_login_code(
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="A student login code was generated recently. Please wait before requesting another one.")
 
     login_code, _ = issued
+
+    try:
+        send_student_login_code_email(
+            settings,
+            parent_user.email,
+            login_code,
+            expires_in_minutes=settings.student_login_code_ttl_minutes,
+            student_name=student.display_name,
+        )
+    except EmailDeliveryError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to send the student login code email right now.") from exc
+
     db.commit()
     logger.info("Generated a short-lived student login code for student_id=%s via parent portal.", student.student_id)
     return StudentLoginCodeIssueResponse(

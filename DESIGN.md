@@ -114,7 +114,8 @@ It also records the current validation surfaces that are wired in the repository
 
 - Default state with parent email request and 4-digit code entry on the same card
 - Generic success response when requesting a code so parent account existence is not exposed
-- Development mode currently surfaces the raw 4-digit code in the confirmation message so browser and local manual testing can proceed before real email delivery is wired
+- SMTP-configurable email delivery now sends verification links, reset links, and student sign-in codes when configured
+- Debug token mode still surfaces the raw 4-digit code in the confirmation message so browser and local manual testing can proceed without external email infrastructure
 - Invalid or expired code error state
 - Multi-student household branch that requires explicit learner selection after code verification
 - Successful student token issuance and redirect to `/learn`
@@ -122,16 +123,20 @@ It also records the current validation surfaces that are wired in the repository
 ### Parent students dashboard
 
 - Protected parent-only route backed by the same session cookie as `/portal`
+- Inline learner profile creation so new family accounts can create the first student without leaving the dashboard
 - Student list display when linked profiles exist
 - Empty state when no student profiles are present yet
 - Per-student code generation action with transient code reveal in the portal and email dispatch contract to the parent address on file
 - Cooldown / rate-limit error state when a code was generated too recently for the same student
-- Student profile creation is supported by the backend but not yet surfaced in this route's UI
 
 ### Student learn landing
 
-- Client-side guard returns anonymous or expired student sessions to `/student-login`
-- Active student session renders a lightweight signed-in confirmation shell rather than the full library experience
+- Middleware now enforces a valid student session before `/learn` can render, and the client keeps a local guard as a second line of defense
+- Active student session restores the short-lived student token from session storage after a refresh within the same browser tab
+- Active student session can also recover from the frontend student-token cookie when server-side route protection admits the request first
+- Active student session restores the learner grade and requests a grade-aware subject catalog from the backend
+- The current backend seed covers Grade 2 with Mathematics, Science, Language Arts - Writing, and Social Studies, while the schema is normalized to extend across other elementary grades
+- Subject choices update the `/learn?subject=...` URL so the current library doorway is explicit and reload-safe
 - Student can sign out locally and return to the code-login entry route
 
 ## Backend Dependencies
@@ -146,7 +151,10 @@ It also records the current validation surfaces that are wired in the repository
 - `POST /api/v1/auth/resend-verification`
 - `POST /api/v1/auth/logout`
 - `GET /api/v1/auth/session`
+- `GET /api/v1/auth/student-session`
 - `GET /api/v1/auth/me`
+- `GET /api/v1/auth/subjects`
+- `GET /api/v1/auth/catalog`
 - `POST /api/v1/auth/students`
 - `POST /api/v1/auth/student-login/request-code`
 - `POST /api/v1/auth/student-login/verify-code`
@@ -158,13 +166,15 @@ It also records the current validation surfaces that are wired in the repository
 - Email verification is required before the application treats the parent as fully authenticated.
 - Forgot-password requests must not reveal whether an email exists.
 - Sessions are intended to use secure HttpOnly cookies.
+- Student bearer tokens are now validated by the backend through a dedicated student-session endpoint so frontend middleware can enforce `/learn` before render.
 - PostgreSQL is the source of truth for users, sessions, verification tokens, and reset tokens.
 - Redis is intended for rate limiting and short-lived auth support.
-- Development flows currently surface verification and reset tokens in API responses when debug token mode is enabled, so end-to-end auth can be tested before email delivery is wired.
+- Email delivery supports SMTP when configured and falls back to structured backend logging for local development.
+- Development flows can still surface verification and reset tokens in API responses when debug token mode is enabled, so end-to-end auth can be tested without relying on inbox access.
 - Student login codes are stored hashed server-side, expire after 10 minutes, and are single-use.
 - A generic student login code requested by parent email proves family email access first; it does not silently choose the wrong child when multiple student profiles exist.
 - Parent portal code generation is child-specific and can reveal the raw code only in the immediate authenticated response used by the dashboard UI.
-- The backend already supports authenticated student profile creation for a signed-in parent, but the current frontend only consumes read and code-generation operations.
+- The frontend auth request helper now propagates the active student bearer token automatically so future student APIs can adopt backend bearer enforcement without rebuilding the transport layer.
 
 ## Backend Scenario Coverage
 
@@ -215,8 +225,8 @@ The auth UI should be verified against backend-like outcomes, not only static re
 | Reset password | missing-token banner, mismatch validation, invalid-token banner, success message and redirect |
 | Verify email | token-driven verification success, token-driven verification failure, resend-verification success message |
 | Student sign in | request-code generic success, invalid-code banner, multi-student selection state, successful redirect to `/learn` |
-| Parent students dashboard | protected render, student cards, generate-code success state, transient code reveal, generate-code cooldown error, empty state when no students exist |
-| Student learn landing | client-side student-session guard, signed-in confirmation content, local sign-out back to `/student-login` |
+| Parent students dashboard | protected render, inline student creation, student cards, generate-code success state, transient code reveal, generate-code cooldown error, empty state when no students exist |
+| Student learn landing | server-side `/learn` guard, client-side student-session recovery, subject catalog load, subject URL selection state, local sign-out back to `/student-login` |
 
 Frontend integration tests should continue to mirror these UI reactions as the auth flows expand.
 
@@ -283,6 +293,6 @@ GitHub Actions currently mirrors the first five rows above through `.github/work
 - Add the remaining playful subject and topic library screens after the student auth entry path.
 - Replace the current placeholder student landing content on `/learn` with the full library experience.
 - Connect the `/students` UI to the existing authenticated `POST /api/v1/auth/students` backend path so parents can create learner profiles without leaving the dashboard.
-- Add explicit email delivery infrastructure beyond debug-token mode and document the provider contract here.
+- Extend the new email delivery contract from SMTP/log mode into the production provider you intend to use and document the deployment-specific credentials path here.
 - Add accessibility verification for the new student code-entry and parent code-reveal flows.
 - Continue reconciling older mocked browser scenarios in `frontend/e2e/` with the current route and endpoint contracts beyond the already-updated student-code paths.

@@ -35,6 +35,15 @@ class Settings(BaseSettings):
     student_login_code_ttl_minutes: int = 10
     student_login_code_request_cooldown_seconds: int = 60
     student_selection_token_ttl_minutes: int = 5
+    mail_delivery_mode: str = "log"
+    mail_from_email: str = "noreply@lumo.local"
+    mail_from_name: str = "LUMO"
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_use_tls: bool = True
+    smtp_use_ssl: bool = False
     auto_create_tables: bool = False
     debug_auth_tokens: bool = False
 

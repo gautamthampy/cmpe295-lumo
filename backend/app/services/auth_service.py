@@ -62,7 +62,14 @@ class AuthService:
             payload, self.settings.jwt_secret, algorithm=self.settings.jwt_algorithm
         )
 
-    def create_student_token(self, student_id: UUID | str, parent_id: UUID | str) -> str:
+    def create_student_token(
+        self,
+        student_id: UUID | str,
+        parent_id: UUID | str,
+        *,
+        display_name: str | None = None,
+        grade_level: int | None = None,
+    ) -> str:
         expire = datetime.now(timezone.utc) + timedelta(
             minutes=self.settings.student_token_expire_minutes
         )
@@ -72,6 +79,10 @@ class AuthService:
             "role": "student",
             "exp": expire,
         }
+        if display_name is not None:
+            payload["display_name"] = display_name
+        if grade_level is not None:
+            payload["grade_level"] = grade_level
         return jwt.encode(
             payload, self.settings.jwt_secret, algorithm=self.settings.jwt_algorithm
         )

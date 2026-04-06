@@ -60,6 +60,43 @@ class SessionResponse(BaseModel):
     email: str | None = None
 
 
+class StudentSessionResponse(BaseModel):
+    authenticated: bool
+    student: "StudentSummaryResponse | None" = None
+
+
+class SubjectCatalogResponse(BaseModel):
+    subject_id: str
+    name: str
+    slug: str
+
+
+class CurriculumLessonResponse(BaseModel):
+    lesson_id: str
+    lesson_title: str
+    learning_objectives: str
+    tags: list[str] = Field(default_factory=list)
+
+
+class CurriculumModuleResponse(BaseModel):
+    module_id: str
+    module_title: str
+    semantic_description: str
+    lessons: list[CurriculumLessonResponse] = Field(default_factory=list)
+
+
+class CurriculumSubjectResponse(BaseModel):
+    subject_slug: str
+    subject_name: str
+    curriculum_provider: str
+    modules: list[CurriculumModuleResponse] = Field(default_factory=list)
+
+
+class GradeCurriculumCatalogResponse(BaseModel):
+    grade_level: int
+    subjects: list[CurriculumSubjectResponse] = Field(default_factory=list)
+
+
 class StudentSummaryResponse(BaseModel):
     student_id: str
     display_name: str

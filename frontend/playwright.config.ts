@@ -2,6 +2,12 @@ import { existsSync } from 'node:fs';
 
 import { defineConfig, devices } from '@playwright/test';
 
+const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:3000';
+const webServerCommand = process.env.PLAYWRIGHT_WEB_SERVER_COMMAND ?? 'npm run dev';
+const reuseExistingServer = process.env.PLAYWRIGHT_REUSE_SERVER === 'true'
+  ? true
+  : !process.env.CI && !process.env.PLAYWRIGHT_BASE_URL;
+
 const systemBrowserCandidates = [
   process.env.PLAYWRIGHT_EXECUTABLE_PATH,
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
@@ -31,7 +37,7 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
 
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'on-first-retry',
@@ -58,9 +64,9 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
+    command: webServerCommand,
+    url: baseURL,
+    reuseExistingServer,
     timeout: 120 * 1000,
     stdout: 'ignore',
     stderr: 'pipe',

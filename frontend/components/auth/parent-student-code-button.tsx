@@ -1,6 +1,7 @@
 "use client";
 
 import { KeyRound } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { authRequest, authRoutes, type StudentLoginCodeIssuePayload } from "@/lib/auth";
@@ -63,6 +64,9 @@ export function ParentStudentCodeButton({ studentId, studentName }: ParentStuden
           <p className="font-label text-xs font-bold uppercase tracking-[0.25em]">Visible For 45 Seconds</p>
           <p className="mt-2 font-headline text-3xl font-extrabold tracking-[0.3em]">{loginCode}</p>
           <p className="mt-2 font-body text-sm leading-6 text-primary">Share this with {studentName} only if they are signing in right now. It was also sent to the parent email on file.</p>
+          <Link href="/student-login" className="mt-4 inline-flex items-center gap-2 font-label text-sm font-bold text-primary underline-offset-4 hover:underline">
+            Open student sign-in on this device
+          </Link>
         </div>
       ) : null}
     </div>

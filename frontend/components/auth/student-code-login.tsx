@@ -1,7 +1,7 @@
 "use client";
 
 import { Mail, RotateCcw, ShieldCheck } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { AuthFooterNote, PrimaryButton } from "@/components/auth/auth-shell";
@@ -9,6 +9,7 @@ import { authRequest, authRoutes, type StudentAuthPayload, type StudentLoginCode
 import { useAuthStore } from "@/lib/store/auth";
 
 const CODE_LENGTH = 4;
+const DEFAULT_STUDENT_DESTINATION = "/learn";
 
 function ErrorBanner({ error }: { error: string | null }) {
   if (!error) {
@@ -18,11 +19,22 @@ function ErrorBanner({ error }: { error: string | null }) {
   return <div role="alert" className="rounded-[1.25rem] bg-[#ffdad6] px-4 py-3 font-body text-sm text-[#93000a]">{error}</div>;
 }
 
+function resolvePostLoginPath(candidate: string | null) {
+  const trimmed = candidate?.trim();
+  if (!trimmed || !trimmed.startsWith("/") || trimmed.startsWith("//") || trimmed.startsWith("/student-login")) {
+    return DEFAULT_STUDENT_DESTINATION;
+  }
+
+  return trimmed;
+}
+
 export function StudentCodeLogin() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const login = useAuthStore((state) => state.login);
   const role = useAuthStore((state) => state.role);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const syncFromBrowserStorage = useAuthStore((state) => state.syncFromBrowserStorage);
   const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
 
   const [email, setEmail] = useState("");
@@ -37,12 +49,17 @@ export function StudentCodeLogin() {
   const [students, setStudents] = useState<StudentSummary[]>([]);
 
   const codeValue = useMemo(() => codeDigits.join(""), [codeDigits]);
+  const nextPath = resolvePostLoginPath(searchParams.get("next"));
+
+  useEffect(() => {
+    syncFromBrowserStorage();
+  }, [syncFromBrowserStorage]);
 
   useEffect(() => {
     if (role === "student" && isAuthenticated()) {
-      router.replace("/learn");
+      router.replace(nextPath);
     }
-  }, [isAuthenticated, role, router]);
+  }, [isAuthenticated, nextPath, role, router]);
 
   async function requestCode(nextEmail: string) {
     setRequestPending(true);
@@ -85,8 +102,8 @@ export function StudentCodeLogin() {
       return;
     }
 
-    login(result.accessToken, "student", result.student.display_name);
-    router.push("/learn");
+    login(result.accessToken, "student", result.student.display_name, result.student.grade_level);
+    router.replace(nextPath);
   }
 
   async function verifyCode(code: string) {
