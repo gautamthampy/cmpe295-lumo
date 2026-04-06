@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     auto_create_tables: bool = False
     debug_auth_tokens: bool = False
 
+    # Privacy & attention
+    data_retention_days: int = 90
+    enable_anonymization: bool = True
+    enable_gaze_telemetry: bool = False
+
     @field_validator("backend_cors_origins", mode="before")
     @classmethod
     def parse_cors_origins(cls, value: list[str] | str) -> list[str]:

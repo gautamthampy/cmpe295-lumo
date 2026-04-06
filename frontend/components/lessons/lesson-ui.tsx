@@ -7,6 +7,14 @@ import { useParams, useSearchParams } from "next/navigation";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 import { GeneratedMissionCallout } from "@/components/story-studio/generated-mission-callout";
+import MiniTestPanel from "@/components/attention/MiniTestPanel";
+import SelfReportPanel from "@/components/attention/SelfReportPanel";
+import {
+  type AttentionDailySummary,
+  type DashboardResponse,
+  fetchAttentionSummary,
+  fetchDashboard,
+} from "@/lib/analytics-api";
 import {
   type LessonActivity,
   type LessonAnalyticsMetric,
@@ -804,6 +812,8 @@ export function LessonsAnalyticsExperience() {
   const [summary, setSummary] = useState<LessonAnalyticsSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [attentionSummary, setAttentionSummary] = useState<AttentionDailySummary | null>(null);
+  const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -827,6 +837,15 @@ export function LessonsAnalyticsExperience() {
           setLoading(false);
         }
       });
+
+    if (studentId) {
+      fetchAttentionSummary(studentId).then((result) => {
+        if (!cancelled) setAttentionSummary(result);
+      }).catch(() => {});
+      fetchDashboard(studentId).then((result) => {
+        if (!cancelled) setDashboard(result);
+      }).catch(() => {});
+    }
 
     return () => {
       cancelled = true;
@@ -896,6 +915,77 @@ export function LessonsAnalyticsExperience() {
             </div>
           </>
         ) : null}
+
+        {/* Attention Tracking Section */}
+        <div className="mt-10">
+          <div className="mb-5 flex items-center gap-3">
+            <Sparkles className="h-5 w-5 text-[#8a5d00]" />
+            <h3 className="font-['Plus_Jakarta_Sans'] text-3xl font-black tracking-[-0.05em] text-[#1f1b00]">Attention Tracking</h3>
+          </div>
+
+          {dashboard ? (
+            <div className="mb-6 grid gap-5 md:grid-cols-3">
+              <div className="rounded-[2rem] bg-white/84 p-6 shadow-[0_18px_36px_rgba(60,53,18,0.12)]">
+                <p className="font-['Plus_Jakarta_Sans'] text-xs font-black uppercase tracking-[0.28em] text-[#8a5d00]">Lessons Completed</p>
+                <p className="mt-3 text-3xl font-black text-[#1f1b00]">{dashboard.lessons_completed}</p>
+              </div>
+              <div className="rounded-[2rem] bg-white/84 p-6 shadow-[0_18px_36px_rgba(60,53,18,0.12)]">
+                <p className="font-['Plus_Jakarta_Sans'] text-xs font-black uppercase tracking-[0.28em] text-[#8a5d00]">Quizzes Taken</p>
+                <p className="mt-3 text-3xl font-black text-[#1f1b00]">{dashboard.quizzes_taken}</p>
+              </div>
+              <div className="rounded-[2rem] bg-white/84 p-6 shadow-[0_18px_36px_rgba(60,53,18,0.12)]">
+                <p className="font-['Plus_Jakarta_Sans'] text-xs font-black uppercase tracking-[0.28em] text-[#8a5d00]">Avg Attention</p>
+                <p className="mt-3 text-3xl font-black text-[#1f1b00]">
+                  {dashboard.attention_summary.average_attention_score > 0
+                    ? `${Math.round(dashboard.attention_summary.average_attention_score * 100)}%`
+                    : "—"}
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          {attentionSummary && attentionSummary.daily_avg.length > 0 ? (
+            <div className="mb-6 rounded-[2rem] bg-white/82 p-6 shadow-[0_18px_36px_rgba(60,53,18,0.12)]">
+              <h4 className="mb-4 font-['Plus_Jakarta_Sans'] text-xl font-black text-[#1f1b00]">Daily Attention Trend</h4>
+              <div className="flex items-end gap-1.5" style={{ height: 120 }}>
+                {attentionSummary.daily_avg.map((day) => {
+                  const pct = Math.round(day.score * 100);
+                  return (
+                    <div key={day.date} className="flex flex-1 flex-col items-center gap-1">
+                      <span className="text-[10px] font-bold text-slate-500">{pct}%</span>
+                      <div
+                        className={clsx("w-full rounded-t-lg", pct >= 70 ? "bg-emerald-400" : pct >= 40 ? "bg-amber-400" : "bg-rose-400")}
+                        style={{ height: `${Math.max(pct, 4)}%` }}
+                      />
+                      <span className="text-[9px] text-slate-400">{day.date.slice(5)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              {attentionSummary.drift_count > 0 && (
+                <p className="mt-3 text-sm text-amber-700">
+                  {attentionSummary.drift_count} drift event{attentionSummary.drift_count > 1 ? "s" : ""} detected this week
+                </p>
+              )}
+            </div>
+          ) : null}
+
+          <div className="grid gap-5 md:grid-cols-2">
+            {studentId ? (
+              <>
+                <MiniTestPanel userId={studentId} />
+                <SelfReportPanel userId={studentId} />
+              </>
+            ) : (
+              <div className="col-span-2 rounded-[2rem] bg-white/82 p-6 shadow-[0_18px_36px_rgba(60,53,18,0.12)]">
+                <p className="font-['Be_Vietnam_Pro'] text-sm text-[#5b4c2c]">
+                  Pass a <code className="rounded bg-amber-100 px-1.5 py-0.5 text-xs">?student_id=UUID</code> to enable
+                  attention mini-test and self-report panels.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
       </section>
     </div>
   );

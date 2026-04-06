@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.config import Settings, get_settings
-from app.core.database import Base, get_db
+from app.core.database import create_db_and_tables, drop_db_tables, get_db
 from app.main import app
 
 
@@ -35,11 +35,11 @@ def db_engine() -> Generator[Engine, None, None]:
         poolclass=StaticPool,
         future=True,
     )
-    Base.metadata.create_all(bind=engine)
+    create_db_and_tables(bind=engine)
     try:
         yield engine
     finally:
-        Base.metadata.drop_all(bind=engine)
+        drop_db_tables(bind=engine)
         engine.dispose()
 
 
