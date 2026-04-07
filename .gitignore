@@ -419,6 +419,7 @@ FodyWeavers.xsd
 *.msp
 
 # next js files
+.next.venv/
 .next
 
 # Local tooling and virtualenvs
