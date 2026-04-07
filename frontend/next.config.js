@@ -1,4 +1,3 @@
-/** @type {import('next').NextConfig} */
 const withMDX = require('@next/mdx')({
   extension: /\.mdx?$/,
   options: {
@@ -7,13 +6,13 @@ const withMDX = require('@next/mdx')({
   },
 });
 
+/** @type {import('next').NextConfig} */
 const nextConfig = {
   pageExtensions: ['ts', 'tsx', 'js', 'jsx', 'md', 'mdx'],
   reactStrictMode: true,
-  env: {
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1',
+  experimental: {
+    mdxRs: false,
   },
 };
 
 module.exports = withMDX(nextConfig);
-

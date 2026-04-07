@@ -1,27 +1,26 @@
-"""
-Quiz endpoints (Alshama's component)
-Handles quiz generation, distractor creation, and scoring
-"""
+"""Quiz endpoints — Alshama's component (Phase 2 stub)."""
 from fastapi import APIRouter
-from uuid import UUID
+from fastapi.responses import JSONResponse
 
 router = APIRouter()
 
 
 @router.post("/generate")
-async def generate_quiz() -> dict:
-    """Generate quiz with deterministic heuristics - Placeholder for Phase 2"""
-    return {"message": "Quiz generation endpoint - To be implemented in Phase 2"}
+async def generate_quiz():
+    """Generate a quiz for a lesson. [Phase 2 - Alshama]"""
+    return JSONResponse(
+        status_code=501,
+        content={"detail": "Real quiz generation not yet implemented. Use /mock/generate."},
+    )
 
 
 @router.get("/{quiz_id}")
-async def get_quiz(quiz_id: UUID) -> dict:
-    """Get quiz details - Placeholder"""
-    return {"message": f"Get quiz {quiz_id} - To be implemented"}
+async def get_quiz(quiz_id: str):
+    """Get a quiz by ID. [Phase 2 - Alshama]"""
+    return JSONResponse(status_code=501, content={"detail": "Not implemented."})
 
 
 @router.post("/{quiz_id}/submit")
-async def submit_quiz(quiz_id: UUID) -> dict:
-    """Submit quiz answers and get results - Placeholder"""
-    return {"message": f"Submit quiz {quiz_id} - To be implemented"}
-
+async def submit_quiz(quiz_id: str):
+    """Submit quiz answers. [Phase 2 - Alshama]"""
+    return JSONResponse(status_code=501, content={"detail": "Not implemented."})

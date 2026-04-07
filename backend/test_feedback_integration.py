@@ -1,4 +1,3 @@
-
 import asyncio
 import sys
 import os
@@ -6,16 +5,22 @@ import os
 # Ensure backend directory is in path
 sys.path.append(os.getcwd())
 
+from app.core.database import SessionLocal
 from app.services.feedback_agent import feedback_agent
 
 async def test_integration():
     print("--- Testing Feedback Agent with Real LLM ---")
     
+    db = SessionLocal()
+    question_text = "What is the primary function of the mitochondria?"
+    
     # 1. Test Hint Generation
     print("\n[1] Generating Hint (Level 1)...")
     try:
         result = await feedback_agent.generate_hint(
+            db=db,
             question_id="demo-q-1",
+            question_text=question_text,
             user_id="demo-user",
             session_id="demo-session",
             hint_level=1
@@ -33,9 +38,13 @@ async def test_integration():
     print("\n[2] Generating Explanation...")
     try:
         result = await feedback_agent.generate_explanation(
+            db=db,
             question_id="demo-q-1",
+            question_text=question_text,
             user_answer="The cell wall",
-            correct_answer="Mitochondria"
+            correct_answer="Mitochondria",
+            user_id="demo-user",
+            session_id="demo-session"
         )
         print(f"Explanation: {result['explanation']}")
         print(f"Motivation: {result['motivational_message']}")
@@ -47,6 +56,8 @@ async def test_integration():
 
     except Exception as e:
         print(f"ERROR: {e}")
+    finally:
+        db.close()
 
 if __name__ == "__main__":
     asyncio.run(test_integration())

@@ -420,3 +420,9 @@ FodyWeavers.xsd
 
 # next js files
 .next.venv/
+.next
+
+# Local tooling and virtualenvs
+.claude/
+.cursor/
+**/.venv/
