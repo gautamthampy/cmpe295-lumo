@@ -1,13 +1,15 @@
 "use client";
 
-import { Bell, BookOpen, ChevronLeft, ChevronRight, CircleUserRound, Grid2x2, MoveRight, Sparkles, Trophy, Volume2 } from "lucide-react";
+import { Bell, BookOpen, ChevronLeft, ChevronRight, CircleUserRound, Grid2x2, HelpCircle, MoveRight, Sparkles, Trophy, Volume2 } from "lucide-react";
 import { clsx } from "clsx";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 
+import { FeedbackModal } from "@/components/feedback/FeedbackModal";
 import { GeneratedMissionCallout } from "@/components/story-studio/generated-mission-callout";
 import MiniTestPanel from "@/components/attention/MiniTestPanel";
+import { type ExplanationResponse, type HintResponse, type MotivationResponse, requestExplanation, requestHint, requestMotivation } from "@/lib/feedback";
 import SelfReportPanel from "@/components/attention/SelfReportPanel";
 import {
   type AttentionDailySummary,
@@ -1063,6 +1065,65 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
   const [quizAnswers, setQuizAnswers] = useState<Record<string, string>>({});
   const [quizSubmitted, setQuizSubmitted] = useState(false);
 
+  // ── Feedback Agent state ──────────────────────────────────────
+  const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
+  const [feedbackTitle, setFeedbackTitle] = useState("");
+  const [feedbackContent, setFeedbackContent] = useState("");
+  const [feedbackHintLevel, setFeedbackHintLevel] = useState<number | undefined>(undefined);
+  const [feedbackIsMotivation, setFeedbackIsMotivation] = useState(false);
+  const [hintLevels, setHintLevels] = useState<Record<string, number>>({});
+  const [hintPending, setHintPending] = useState<string | null>(null);
+  const [explanationPending, setExplanationPending] = useState<string | null>(null);
+
+  const showFeedback = useCallback((title: string, content: string, opts?: { hintLevel?: number; isMotivation?: boolean }) => {
+    setFeedbackTitle(title);
+    setFeedbackContent(content);
+    setFeedbackHintLevel(opts?.hintLevel);
+    setFeedbackIsMotivation(opts?.isMotivation ?? false);
+    setFeedbackModalOpen(true);
+  }, []);
+
+  const handleHintRequest = useCallback(async (questionId: string, questionText: string) => {
+    const currentLevel = hintLevels[questionId] ?? 1;
+    if (currentLevel > 3) return;
+    setHintPending(questionId);
+    const result = await requestHint({
+      question_id: questionId,
+      question_text: questionText,
+      user_id: "student",
+      session_id: "session",
+      hint_level: currentLevel,
+    });
+    setHintLevels((prev) => ({ ...prev, [questionId]: Math.min(currentLevel + 1, 4) }));
+    showFeedback(`Hint (Level ${currentLevel})`, result.hint_text, { hintLevel: currentLevel });
+    setHintPending(null);
+  }, [hintLevels, showFeedback]);
+
+  const handleExplanationRequest = useCallback(async (questionId: string, questionText: string, userAnswer: string, correctAnswer: string, misconceptionType?: string | null) => {
+    setExplanationPending(questionId);
+    const result = await requestExplanation({
+      question_id: questionId,
+      question_text: questionText,
+      user_answer: userAnswer,
+      correct_answer: correctAnswer,
+      user_id: "student",
+      session_id: "session",
+      misconception_type: misconceptionType,
+    });
+    showFeedback("Let's review this question", `${result.explanation}\n\n${result.motivational_message}`);
+    setExplanationPending(null);
+  }, [showFeedback]);
+
+  const handleMotivationNudge = useCallback(async (errorCount: number, subject?: string) => {
+    const result = await requestMotivation({
+      user_id: "student",
+      session_id: "session",
+      error_count: errorCount,
+      question_context: subject,
+    });
+    showFeedback("Keep Going! 🌟", result.message, { isMotivation: true });
+  }, [showFeedback]);
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -1332,39 +1393,78 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
               {quiz ? (
                 <div className="mt-6 space-y-5">
                   <h4 className="font-['Plus_Jakarta_Sans'] text-2xl font-black tracking-[-0.04em] text-[#1f1b00]">Quiz — {quiz.questions.length} questions</h4>
-                  {quiz.questions.map((question, questionIndex) => (
-                    <fieldset key={question.question_id} className="rounded-[1.5rem] bg-[#fff9e8] p-5 shadow-sm">
-                      <legend className="font-['Plus_Jakarta_Sans'] text-lg font-black text-[#1f1b00]">{questionIndex + 1}. {question.question_text}</legend>
-                      <div className="mt-4 space-y-3">
-                        {question.options.map((option) => {
-                          const selected = quizAnswers[question.question_id] === option.option_id;
-                          const correct = !option.is_distractor;
-                          return (
-                            <label
-                              key={option.option_id}
-                              className={clsx(
-                                "flex cursor-pointer items-center gap-3 rounded-[1rem] px-4 py-3 font-['Be_Vietnam_Pro'] text-base font-semibold text-[#1f1b00] shadow-sm",
-                                quizSubmitted && correct && "bg-emerald-50 text-emerald-900",
-                                quizSubmitted && selected && !correct && "bg-rose-50 text-rose-900",
-                                !quizSubmitted && selected && "bg-[#e8f3ff]",
-                                !selected && !quizSubmitted && "bg-white"
-                              )}
-                            >
-                              <input
-                                type="radio"
-                                name={question.question_id}
-                                value={option.option_id}
-                                checked={selected}
-                                disabled={quizSubmitted}
-                                onChange={() => setQuizAnswers((current) => ({ ...current, [question.question_id]: option.option_id }))}
-                              />
-                              <span>{option.option_text}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </fieldset>
-                  ))}
+                  {quiz.questions.map((question, questionIndex) => {
+                    const selectedOptionId = quizAnswers[question.question_id];
+                    const correctOption = question.options.find((opt) => !opt.is_distractor);
+                    const selectedOption = question.options.find((opt) => opt.option_id === selectedOptionId);
+                    const isWrong = quizSubmitted && selectedOptionId && correctOption && selectedOptionId !== correctOption.option_id;
+                    const currentHintLevel = hintLevels[question.question_id] ?? 1;
+
+                    return (
+                      <fieldset key={question.question_id} className="rounded-[1.5rem] bg-[#fff9e8] p-5 shadow-sm">
+                        <legend className="font-['Plus_Jakarta_Sans'] text-lg font-black text-[#1f1b00]">{questionIndex + 1}. {question.question_text}</legend>
+                        <div className="mt-4 space-y-3">
+                          {question.options.map((option) => {
+                            const selected = selectedOptionId === option.option_id;
+                            const correct = !option.is_distractor;
+                            return (
+                              <label
+                                key={option.option_id}
+                                className={clsx(
+                                  "flex cursor-pointer items-center gap-3 rounded-[1rem] px-4 py-3 font-['Be_Vietnam_Pro'] text-base font-semibold text-[#1f1b00] shadow-sm",
+                                  quizSubmitted && correct && "bg-emerald-50 text-emerald-900",
+                                  quizSubmitted && selected && !correct && "bg-rose-50 text-rose-900",
+                                  !quizSubmitted && selected && "bg-[#e8f3ff]",
+                                  !selected && !quizSubmitted && "bg-white"
+                                )}
+                              >
+                                <input
+                                  type="radio"
+                                  name={question.question_id}
+                                  value={option.option_id}
+                                  checked={selected}
+                                  disabled={quizSubmitted}
+                                  onChange={() => setQuizAnswers((current) => ({ ...current, [question.question_id]: option.option_id }))}
+                                />
+                                <span>{option.option_text}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+
+                        {/* Hint button – available before submission, up to 3 levels */}
+                        {!quizSubmitted && currentHintLevel <= 3 ? (
+                          <button
+                            type="button"
+                            disabled={hintPending === question.question_id}
+                            onClick={() => void handleHintRequest(question.question_id, question.question_text)}
+                            className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-[#e8f3ff] px-4 py-2 font-['Plus_Jakarta_Sans'] text-xs font-black text-[#175b90] transition-colors hover:bg-[#d1e8ff] disabled:opacity-50"
+                          >
+                            <HelpCircle className="h-3.5 w-3.5" />
+                            {hintPending === question.question_id ? "Loading hint..." : `Get a Hint (${currentHintLevel}/3)`}
+                          </button>
+                        ) : null}
+
+                        {/* Explain button – visible after submission for wrong answers */}
+                        {isWrong ? (
+                          <button
+                            type="button"
+                            disabled={explanationPending === question.question_id}
+                            onClick={() => void handleExplanationRequest(
+                              question.question_id,
+                              question.question_text,
+                              selectedOption?.option_text ?? "",
+                              correctOption?.option_text ?? "",
+                              selectedOption?.misconception_type,
+                            )}
+                            className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-[#ffefc5] px-4 py-2 font-['Plus_Jakarta_Sans'] text-xs font-black text-[#8a5d00] transition-colors hover:bg-[#ffd694] disabled:opacity-50"
+                          >
+                            {explanationPending === question.question_id ? "Loading..." : "Explain This"}
+                          </button>
+                        ) : null}
+                      </fieldset>
+                    );
+                  })}
 
                   <button
                     type="button"
@@ -1372,6 +1472,12 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
                     onClick={() => {
                       setQuizSubmitted(true);
                       void logLessonEvent({ event: "quiz_submit", lesson_id: lesson.lesson_id, answers: quizAnswers });
+                      // Check score and trigger motivational nudge for low scores
+                      const score = buildQuizScore(quiz, quizAnswers);
+                      const total = quiz.questions.length;
+                      if (total > 0 && score / total < 0.5) {
+                        void handleMotivationNudge(total - score, lesson.quiz_context.subject);
+                      }
                     }}
                     className="rounded-full bg-[#8a5d00] px-5 py-3 font-['Plus_Jakarta_Sans'] text-sm font-black text-white disabled:opacity-40"
                   >
@@ -1391,6 +1497,16 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
             ) : null}
           </article>
         </main>
+
+        {/* Feedback Modal */}
+        <FeedbackModal
+          isOpen={feedbackModalOpen}
+          onClose={() => setFeedbackModalOpen(false)}
+          title={feedbackTitle}
+          content={feedbackContent}
+          hintLevel={feedbackHintLevel}
+          isMotivation={feedbackIsMotivation}
+        />
       </div>
     </div>
   );
