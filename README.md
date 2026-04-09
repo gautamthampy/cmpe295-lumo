@@ -1,138 +1,372 @@
-# LUMO Auth Foundations
+# LUMO — Learning Understanding through Multi-agent Orchestration
 
-This repository currently contains the first implementation slice for the LUMO parent authentication experience.
+> An AI-powered adaptive tutoring platform for K-8 students, built with a multi-agent architecture that personalises lessons, tracks attention, and provides real-time feedback.
 
-## Stack
+[![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?logo=fastapi)](https://fastapi.tiangolo.com)
+[![Next.js](https://img.shields.io/badge/Frontend-Next.js%2015-000?logo=next.js)](https://nextjs.org)
+[![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL-336791?logo=postgresql)](https://www.postgresql.org)
+[![Redis](https://img.shields.io/badge/Cache-Redis-DC382D?logo=redis)](https://redis.io)
+[![Gemini](https://img.shields.io/badge/AI-Google%20Gemini-4285F4?logo=google)](https://ai.google.dev)
 
-- Frontend: Next.js 15, React 19, TypeScript, Tailwind CSS, MDX-ready configuration
-- Backend: FastAPI, Python 3.11+, PostgreSQL, Redis
-- Infrastructure: Docker Compose for local PostgreSQL and Redis
+---
 
-## Current Scope
+## Table of Contents
 
-- Sign in
-- Sign up
-- Forgot password request
-- Forgot password confirmation
-- Reset password completion
-- Verification prompt
-- Initial FastAPI auth module scaffold
-- Initial PostgreSQL auth schema
-- Living design document at the repo root
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Multi-Agent System](#multi-agent-system)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Getting Started](#getting-started)
+- [API Reference](#api-reference)
+- [Evaluation Framework](#evaluation-framework)
+- [Testing](#testing)
+- [Deployment](#deployment)
 
-## Structure
+---
 
-- `frontend/` - Next.js auth application
-- `backend/` - FastAPI auth service scaffold
-- `database/init/` - SQL bootstrap schema
-- `DESIGN.md` - living implementation-facing design document
-- `stitch_remix_of_forgot_password_parent_portal/` - original design artifacts
+## Overview
 
-## Local Setup
+LUMO is an intelligent tutoring system that uses a **multi-agent architecture** to deliver personalised, accessible learning experiences for elementary-school students. The platform addresses three core challenges in digital education:
 
-### Fastest Manual Run
+1. **Adaptive Content Generation** — Lessons are dynamically generated using ZPD, BKT, misconception-aware, and hybrid strategies, tailored to each learner's current mastery level.
+2. **Real-Time Attention Monitoring** — A lightweight attention engine detects drift via response latency, error rate, and idle time, triggering breaks or interactive recaps.
+3. **Closed-Loop Feedback** — Tiered hints (nudge → conceptual → procedural), error explanations, and motivational nudges keep students engaged without revealing answers.
 
-If you want to run the current auth application end to end before pushing, you do not need Docker for the auth slice.
+The system is designed for **parent-supervised learning**, where parents create accounts, add student profiles, and can request diagnostic assessments to identify misconceptions.
 
-Use two PowerShell terminals from the repo root.
+---
 
-Terminal 1: backend
+## Architecture
 
-```powershell
-Set-Location .\backend
-$env:DATABASE_URL="sqlite:///./local-auth.db"
-$env:JWT_SECRET="replace-this-with-a-long-local-dev-secret"
-$env:AUTO_CREATE_TABLES="true"
-$env:APP_BASE_URL="http://127.0.0.1:3000"
-$env:BACKEND_CORS_ORIGINS="http://127.0.0.1:3000,http://localhost:3000"
-$env:MAIL_DELIVERY_MODE="log"
-uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+┌─────────────────────────────────────────────────────────┐
+│                   Next.js Frontend                      │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────┐  │
+│  │ Lessons  │ │Dashboard │ │   Auth   │ │ Analytics │  │
+│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └─────┬─────┘  │
+│       └────────────┴────────────┴──────────────┘        │
+│                         │  API Proxy                    │
+└─────────────────────────┼───────────────────────────────┘
+                          │
+┌─────────────────────────┼───────────────────────────────┐
+│                   FastAPI Backend                        │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────┐  │
+│  │ Planner  │ │ Lesson   │ │ Feedback │ │ Attention │  │
+│  │  Agent   │ │ Designer │ │  Agent   │ │  Engine   │  │
+│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └─────┬─────┘  │
+│       └────────────┴────────────┴──────────────┘        │
+│                         │                               │
+│  ┌──────────────────────┼────────────────────────────┐  │
+│  │              Service Layer                        │  │
+│  │  GeminiService · AuthService · DiagnosticService  │  │
+│  │  SubjectService · NotificationService · Catalog   │  │
+│  └───────────────────────┬───────────────────────────┘  │
+└──────────────────────────┼──────────────────────────────┘
+                           │
+             ┌─────────────┼─────────────┐
+             │ PostgreSQL  │    Redis    │
+             │ (5 schemas) │  (drift)   │
+             └─────────────┴─────────────┘
 ```
 
-Terminal 2: frontend
+---
 
-```powershell
-Set-Location .\frontend
-$env:NEXT_PUBLIC_API_BASE_URL="http://127.0.0.1:8000/api/v1"
-$env:SESSION_COOKIE_NAME="lumo_session"
-npm run dev -- --hostname 127.0.0.1 --port 3000
+## Multi-Agent System
+
+### 1. Planner Agent (`services/planner_service.py`)
+The **orchestrator**. Aggregates signals from attention, feedback, and analytics subsystems to recommend the student's next-best-action (continue, review, break, switch to interactive).
+
+### 2. Lesson Designer Agent (`services/generation/`)
+Generates age-appropriate, accessible lesson content using four pluggable strategies:
+| Strategy | Module | Description |
+|----------|--------|-------------|
+| **ZPD** | `zpd_strategy.py` | Zone of Proximal Development — scaffolds difficulty |
+| **BKT** | `bkt_strategy.py` | Bayesian Knowledge Tracing — probability-based mastery |
+| **Misconception** | `misconception_strategy.py` | Targets specific student misconceptions |
+| **Hybrid** | `hybrid_strategy.py` | Blends ZPD + BKT + misconception signals |
+
+### 3. Feedback & Motivation Agent (`services/feedback_agent.py`)
+Provides three levels of support:
+- **Hints** (Level 1–3): Nudge → Conceptual → Procedural, progressively revealing more detail
+- **Explanations**: Step-by-step breakdowns when a student answers incorrectly
+- **Motivational Nudges**: Encouraging messages triggered when quiz performance drops below 50%
+
+### 4. Attention Engine (`services/attention_engine.py`)
+A lightweight attention-tracking pipeline:
+- Computes an attention score from response latency, error rate, and idle time
+- Detects **attention drift** using a sliding-window approach with Redis state
+- Triggers **break suggestions** or **recap activities** when drift is sustained
+- Records attention peaks by hour-of-day × day-of-week for optimal scheduling
+
+### 5. Diagnostic Agent (`services/diagnostic_service.py`)
+Parent-initiated assessments that probe student misconceptions:
+- Generates probing activities from the misconception taxonomy
+- Scores responses and identifies weak tags
+- Suggests targeted remedial lessons (existing or AI-generated)
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| **Frontend** | Next.js 15, React 19, TypeScript, Tailwind CSS |
+| **Backend** | Python 3.11+, FastAPI, SQLAlchemy, Pydantic v2 |
+| **Database** | PostgreSQL (5 schemas: `iam`, `learner`, `content`, `events`, `catalog`) |
+| **Cache** | Redis (attention drift state, feature windows) |
+| **AI** | Google Gemini 2.0 Flash (with mock fallback) |
+| **Auth** | JWT (bcrypt password hashing, PIN-based student login) |
+| **Email** | SMTP with configurable log/smtp delivery modes |
+| **Eval** | Custom rubric-based evaluation pipeline |
+
+---
+
+## Project Structure
+
+```
+cmpe295-lumo/
+├── backend/
+│   ├── app/
+│   │   ├── api/
+│   │   │   ├── routes/              # Primary API routes
+│   │   │   │   ├── auth.py          # Parent/student auth flows
+│   │   │   │   ├── feedback.py      # Hint, explanation, motivation
+│   │   │   │   ├── lessons.py       # Lesson CRUD, rendering, quiz gen
+│   │   │   │   └── planner.py       # Learning path recommendations
+│   │   │   └── v1/endpoints/        # Extended API routes
+│   │   │       ├── analytics.py     # Attention events, metrics, dashboard
+│   │   │       ├── diagnostics.py   # Diagnostic assessment CRUD
+│   │   │       ├── evaluation.py    # Strategy comparison metrics
+│   │   │       └── sessions.py      # Learning session management
+│   │   ├── core/                     # Config, database, dependencies
+│   │   ├── models/                   # SQLAlchemy ORM models
+│   │   ├── schemas/                  # Pydantic request/response schemas
+│   │   ├── services/                 # Business logic layer
+│   │   │   ├── generation/           # Lesson generation strategies
+│   │   │   ├── attention_engine.py   # Attention scoring + drift
+│   │   │   ├── feedback_agent.py     # Feedback & motivation agent
+│   │   │   ├── planner_service.py    # Planner orchestrator
+│   │   │   ├── diagnostic_service.py # Diagnostic assessments
+│   │   │   ├── gemini_service.py     # LLM integration (Gemini)
+│   │   │   └── ...
+│   │   └── constants/                # Event type constants
+│   ├── evaluation/                   # Evaluation framework
+│   │   ├── rubrics.py                # Scoring rubrics
+│   │   └── run_eval.py               # Evaluation runner
+│   ├── migrations/                   # Alembic DB migrations
+│   └── tests/                        # pytest test suite
+├── frontend/
+│   ├── app/                          # Next.js app router pages
+│   │   ├── (auth)/                   # Login, register, student login
+│   │   ├── (parent)/                 # Parent portal (student mgmt)
+│   │   ├── (student)/                # Student learning interface
+│   │   ├── dashboard/                # Attention analytics dashboard
+│   │   ├── lessons/                  # Lesson list, render, analytics
+│   │   └── portal/                   # Parent dashboard portal
+│   ├── components/                   # React components
+│   │   ├── feedback/                 # FeedbackModal
+│   │   ├── lessons/                  # LessonUI (main interactive view)
+│   │   └── ui/                       # Shared UI primitives
+│   ├── lib/                          # API clients & utilities
+│   │   ├── api.ts                    # Base authRequest helper
+│   │   ├── analytics-api.ts          # Analytics endpoints
+│   │   ├── feedback.ts               # Feedback API client
+│   │   ├── lessons.ts                # Lesson/quiz API client
+│   │   └── story-studio/             # Story experience generation
+│   └── public/                       # Static assets
+└── docs/                             # Project workbook & documentation
 ```
 
-Then open:
+---
 
-1. `http://127.0.0.1:3000/sign-in`
-2. `http://127.0.0.1:3000/sign-up`
-3. `http://127.0.0.1:3000/forgot-password`
-4. `http://127.0.0.1:3000/student-login`
+## Getting Started
 
-This path matches the currently implemented parent-auth experience and uses a local SQLite database file at `backend/local-auth.db`.
+### Prerequisites
 
-To deliver real emails instead of logging them locally, set:
+- Python 3.11+
+- Node.js 18+
+- PostgreSQL 14+
+- Redis 7+
+- Google Gemini API key (optional — mock fallback available)
 
-```powershell
-$env:MAIL_DELIVERY_MODE="smtp"
-$env:MAIL_FROM_EMAIL="noreply@example.com"
-$env:MAIL_FROM_NAME="LUMO"
-$env:SMTP_HOST="smtp.example.com"
-$env:SMTP_PORT="587"
-$env:SMTP_USERNAME="smtp-user"
-$env:SMTP_PASSWORD="smtp-password"
-$env:SMTP_USE_TLS="true"
+### Backend Setup
+
+```bash
+cd backend
+
+# Create virtual environment
+python3.11 -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your database URL, Redis URL, and optional Gemini API key
+
+# Run database migrations
+alembic upgrade head
+
+# Start the development server
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-With `MAIL_DELIVERY_MODE="log"`, verification links, reset links, and student codes are written to the backend log for local development while debug-token mode can still surface them in API responses when enabled.
+### Frontend Setup
 
-### SSL Certificates
+```bash
+cd frontend
 
-If your environment requires corporate PKI trust to install Node or Python packages, load the repo-local certificate bundles before installing dependencies:
+# Install dependencies
+npm install
 
-1. `PowerShell -ExecutionPolicy Bypass -File .\scripts\use-repo-certs.ps1`
-2. Keep using that shell for `npm install`, `uv sync`, and any other package-install commands.
+# Configure environment
+cp .env.example .env.local
+# Set NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
 
-The script points Node, npm, and Python tooling at the certificate bundles stored in `certs/`.
+# Start the development server
+npm run dev
+```
 
-### Frontend
+### Environment Variables
 
-1. `cd frontend`
-2. `npm install`
-3. `npm run dev`
-4. `npm run test`
-5. `npm run test:e2e:auth`
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DATABASE_URL` | PostgreSQL connection string | `postgresql://lumo:lumo@localhost:5432/lumo` |
+| `REDIS_URL` | Redis connection string | `redis://localhost:6379/0` |
+| `GEMINI_API_KEY` | Google Gemini API key (optional) | — |
+| `JWT_SECRET` | Secret key for JWT token signing | `changeme` |
+| `AUTO_CREATE_TABLES` | Auto-create DB tables on startup | `true` |
+| `ENABLE_GAZE_TELEMETRY` | Enable gaze tracking events | `false` |
+| `MAIL_DELIVERY_MODE` | Email delivery: `log` or `smtp` | `log` |
 
-If Playwright needs to download browsers in your environment, do it from the same repo-cert-enabled PowerShell session used for `npm install` so browser downloads trust the corporate PKI chain as well.
-The auth smoke suite self-hosts the frontend on `127.0.0.1:3100` and the backend on `127.0.0.1:8100` so it does not accidentally attach to any already-running local dev servers. When a local Chrome or Edge install is present, the suite uses that browser automatically; otherwise it falls back to the normal Playwright-managed browser bundle.
+---
 
-### Backend
+## API Reference
 
-1. Install Python 3.11+ or use `uv`
-2. `cd backend`
-3. `uv sync`
-4. `uv run uvicorn app.main:app --reload`
-5. `uv run pytest`
+All endpoints are served under `/api/v1`.
 
-### Full Validation Before Push
+### Auth (`/api/v1/auth/`)
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/auth/register` | Register a parent account |
+| POST | `/auth/login` | Parent login (returns JWT) |
+| POST | `/auth/students` | Add a student profile |
+| POST | `/auth/students/login` | Student PIN login |
+| GET  | `/auth/students` | List parent's students |
 
-From the current repo state, these are the commands that should pass before you push:
+### Lessons (`/api/v1/lessons/`)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/lessons` | List all lessons (filter by subject, grade) |
+| GET | `/lessons/{id}/render` | Render a lesson with activities |
+| POST | `/lessons/{id}/quiz` | Generate a quiz (Gemini or mock) |
+| GET | `/lessons/analytics/summary` | Lesson analytics summary |
+| POST | `/lessons/events` | Log a lesson event |
 
-1. `cd backend && uv run pytest`
-2. `cd frontend && npm run test`
-3. `cd frontend && npm run typecheck`
-4. `cd frontend && npm run build`
-5. `cd frontend && npm run test:e2e:auth`
+### Feedback (`/api/v1/feedback/`)
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/feedback/hint` | Get a tiered hint (level 1–3) |
+| POST | `/feedback/explanation` | Get an error explanation |
+| POST | `/feedback/motivation` | Get a motivational nudge |
+| POST | `/feedback/re-quiz` | Generate a re-quiz question |
 
-The broader legacy Playwright suite under `frontend/e2e/` is not aligned with the current auth-only surface yet, so it should not be treated as a release gate until it is updated or removed.
+### Analytics (`/api/v1/analytics/`)
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/analytics/events` | Ingest a user event |
+| GET | `/analytics/attention/current/` | Current attention status |
+| GET | `/analytics/attention/{user_id}` | Attention history |
+| GET | `/analytics/attention/peaks/` | Peak attention windows |
+| GET | `/analytics/attention/summary/` | Daily attention averages |
+| GET | `/analytics/dashboard/{user_id}` | User dashboard data |
 
-### Infrastructure
+### Planner (`/api/v1/planner/`)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/planner/recommend/{student_id}` | Get learning recommendations |
 
-1. `docker compose up -d postgres redis`
+### Diagnostics (`/api/v1/diagnostics/`)
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/diagnostics/generate` | Generate a diagnostic assessment |
+| GET | `/diagnostics/{id}` | Get assessment details |
+| POST | `/diagnostics/{id}/submit` | Submit student responses |
+| GET | `/diagnostics/results/{student_id}` | Get all diagnostics for a student |
 
-## Notes
+### Evaluation (`/api/v1/evaluation/`)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/evaluation/strategy-comparison` | Compare generation strategies |
+| GET | `/evaluation/runs` | List recent generation runs |
 
-- Social sign-in is intentionally excluded from V1.
-- Email verification gates access in V1.
-- The implementation-facing design document must be updated together with any new screen or backend-visible UX change.
-- In this repo, SSL-sensitive dependency installs should use the certificate bundles in `certs/` rather than machine-specific missing PEM files.
-- `/portal` now enforces a real backend session check instead of acting as a public placeholder.
-- The frontend ships with a dedicated auth smoke suite under `frontend/e2e-auth/` that runs against the live frontend and backend together.
-- GitHub Actions CI now runs frontend typechecking, frontend integration tests, backend tests, production build verification, and the auth end-to-end smoke flow.
+### Sessions (`/api/v1/sessions/`)
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/sessions/` | Create a learning session |
+| POST | `/sessions/{id}/end` | End a learning session |
 
+---
+
+## Evaluation Framework
+
+The `evaluation/` directory contains a strategy comparison framework:
+
+- **`rubrics.py`** — Defines scoring rubrics (accessibility, engagement, misconception coverage)
+- **`run_eval.py`** — Runs all four generation strategies against the same prompt and compares scores
+
+Results are persisted to `content.generation_runs` and queryable via the `/evaluation/strategy-comparison` endpoint.
+
+---
+
+## Testing
+
+```bash
+cd backend
+source .venv/bin/activate
+
+# Run all tests
+pytest tests/ -v
+
+# Run specific test files
+pytest tests/test_feedback_api.py -v
+pytest tests/test_analytics_api.py -v
+pytest tests/test_attention_peaks.py -v
+```
+
+---
+
+## Deployment
+
+### Docker (Recommended)
+
+```bash
+# Build and start all services
+docker-compose up --build
+
+# Services:
+# - Backend:  http://localhost:8000
+# - Frontend: http://localhost:3000
+# - PostgreSQL: localhost:5432
+# - Redis: localhost:6379
+```
+
+### Manual
+
+1. Set up PostgreSQL and Redis instances
+2. Run backend with `uvicorn app.main:app --host 0.0.0.0 --port 8000`
+3. Build frontend with `npm run build` and serve with `npm start`
+
+---
+
+## License
+
+This project is developed as part of CMPE 295 — Master's Project at San José State University.
+
+---
+
+## Authors
+
+Built by the LUMO team — Bernardo Flores and collaborators.

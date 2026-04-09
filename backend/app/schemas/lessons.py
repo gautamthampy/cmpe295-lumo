@@ -49,3 +49,34 @@ class LessonAnalyticsSummaryResponse(BaseModel):
     avg_accessibility: int
     avg_quiz_pass: int
     lessons: list[LessonAnalyticsMetricResponse] = Field(default_factory=list)
+
+
+# --------------- Quiz schemas ---------------
+
+class QuizOption(BaseModel):
+    option_id: str
+    option_text: str
+    is_distractor: bool
+    misconception_type: str | None = None
+
+
+class QuizQuestion(BaseModel):
+    question_id: str
+    question_text: str
+    options: list[QuizOption]
+    difficulty: str = "medium"
+
+
+class QuizResponse(BaseModel):
+    quiz_id: str
+    lesson_id: str
+    questions: list[QuizQuestion]
+    generated_at: str
+
+
+# --------------- Accessibility schemas ---------------
+
+class AccessibilityIssue(BaseModel):
+    rule: str
+    severity: str  # "error" | "warning"
+    message: str

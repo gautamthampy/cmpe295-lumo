@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import get_current_parent, get_current_student
-from app.models.auth import Parent, Student
+from app.models.auth import ParentUser, Student
 from app.models.subject import DiagnosticAssessment, Subject
 from app.services.diagnostic_service import DiagnosticService
 from app.services.gemini_service import get_gemini_service
@@ -70,7 +70,7 @@ def _to_response(assessment: DiagnosticAssessment) -> DiagnosticResponse:
 @router.post("/generate", response_model=DiagnosticResponse, status_code=status.HTTP_201_CREATED)
 async def generate_diagnostic(
     payload: DiagnosticGenerateRequest,
-    parent: Parent = Depends(get_current_parent),
+    parent: ParentUser = Depends(get_current_parent),
     db: Session = Depends(get_db),
 ):
     """Parent requests a diagnostic assessment for one of their students."""
@@ -156,7 +156,7 @@ async def submit_diagnostic(
 @router.get("/results/{student_id}", response_model=list[DiagnosticResponse])
 async def get_student_diagnostics(
     student_id: UUID,
-    parent: Parent = Depends(get_current_parent),
+    parent: ParentUser = Depends(get_current_parent),
     db: Session = Depends(get_db),
 ):
     """Parent views all diagnostic results for one of their students."""

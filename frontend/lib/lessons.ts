@@ -264,7 +264,7 @@ export async function fetchLessonAnalytics(studentId?: string) {
 
 export async function generateLessonQuiz(lesson: LessonRenderPayload) {
   try {
-    return await authRequest<LessonQuizPayload>("/mock/generate", {
+    return await authRequest<LessonQuizPayload>(`/lessons/${lesson.lesson_id}/quiz`, {
       method: "POST",
       body: JSON.stringify({
         lesson_id: lesson.lesson_id,
@@ -279,7 +279,7 @@ export async function generateLessonQuiz(lesson: LessonRenderPayload) {
 
 export async function logLessonEvent(payload: Record<string, unknown>) {
   try {
-    await authRequest<Record<string, never>>("/mock/events", {
+    await authRequest<Record<string, never>>("/lessons/events", {
       method: "POST",
       body: JSON.stringify(payload),
     });

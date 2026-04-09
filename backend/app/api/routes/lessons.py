@@ -231,3 +231,133 @@ def render_lesson(lesson_id: str, db: Session = Depends(get_db)) -> LessonRender
         next_lesson_id=_next_lesson_id(module, lesson),
         prerequisites_met=True,
     )
+
+
+# ---------------------------------------------------------------------------
+# Quiz generation — Quiz & Challenge Agent
+# ---------------------------------------------------------------------------
+
+from datetime import datetime, timezone
+from pydantic import BaseModel as _PydanticBaseModel
+from app.services.gemini_service import get_gemini_service
+from app.schemas.lessons import QuizOption, QuizQuestion, QuizResponse
+
+
+class _QuizGenerateRequest(_PydanticBaseModel):
+    lesson_id: str
+    quiz_context: dict | None = None
+    misconception_tags: list[str] = []
+
+
+def _build_mock_quiz(lesson_id: str, subject: str, grade_level: int, tags: list[str]) -> QuizResponse:
+    """Deterministic fallback quiz when Gemini is unavailable."""
+    tag_label = tags[0].replace("-", " ") if tags else "key concepts"
+    return QuizResponse(
+        quiz_id=f"quiz-{lesson_id}",
+        lesson_id=lesson_id,
+        questions=[
+            QuizQuestion(
+                question_id=f"{lesson_id}-q1",
+                question_text=f"Which subject are you exploring in this Grade {grade_level} lesson?",
+                options=[
+                    QuizOption(option_id="a", option_text=subject, is_distractor=False),
+                    QuizOption(option_id="b", option_text="Recess", is_distractor=True, misconception_type="attention-slip"),
+                ],
+                difficulty="easy",
+            ),
+            QuizQuestion(
+                question_id=f"{lesson_id}-q2",
+                question_text="What should you do if the puzzle feels tricky?",
+                options=[
+                    QuizOption(option_id="a", option_text="Look for patterns and keep trying", is_distractor=False),
+                    QuizOption(option_id="b", option_text="Give up right away", is_distractor=True, misconception_type="confidence-drop"),
+                ],
+                difficulty="easy",
+            ),
+            QuizQuestion(
+                question_id=f"{lesson_id}-q3",
+                question_text=f"Which idea is most important when studying {tag_label}?",
+                options=[
+                    QuizOption(option_id="a", option_text="Understanding the steps carefully", is_distractor=False),
+                    QuizOption(option_id="b", option_text="Memorising without thinking", is_distractor=True, misconception_type="rote-only"),
+                    QuizOption(option_id="c", option_text="Skipping the hard parts", is_distractor=True, misconception_type="avoidance"),
+                ],
+                difficulty="medium",
+            ),
+        ],
+        generated_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+@router.post("/lessons/{lesson_id}/quiz", response_model=QuizResponse)
+async def generate_quiz(
+    lesson_id: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Generate a quiz for a lesson.
+
+    Uses GeminiService for dynamic question generation when GEMINI_API_KEY
+    is set; falls back to deterministic mock questions otherwise.
+    """
+    entry = get_curriculum_lesson_entry(db, lesson_id)
+    if entry is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lesson not found.")
+
+    subject, _module, lesson = entry
+    tags = list(lesson.tags or [])
+    gemini = get_gemini_service()
+
+    if gemini.model:
+        import json as _json
+
+        prompt = f"""Generate 3 multiple-choice quiz questions for a Grade {subject.grade_level} {subject.name} lesson titled "{lesson.title}".
+
+Misconception tags to probe: {', '.join(tags) if tags else 'general understanding'}
+
+Return a JSON array of objects:
+[{{"question_id":"q1","question_text":"...","options":[{{"option_id":"a","option_text":"...","is_distractor":false,"misconception_type":null}},{{"option_id":"b","option_text":"...","is_distractor":true,"misconception_type":"tag"}}],"difficulty":"easy|medium|hard"}}]
+
+Return ONLY valid JSON."""
+
+        try:
+            raw = await gemini._generate_content(prompt)
+            clean = raw.strip()
+            if clean.startswith("```"):
+                clean = "\n".join(clean.split("\n")[1:-1])
+            questions_data = _json.loads(clean)
+            questions = [QuizQuestion(**q) for q in questions_data]
+            return QuizResponse(
+                quiz_id=f"quiz-{lesson_id}",
+                lesson_id=lesson_id,
+                questions=questions,
+                generated_at=datetime.now(timezone.utc).isoformat(),
+            )
+        except Exception:
+            pass  # Fall through to mock
+
+    return _build_mock_quiz(lesson_id, subject.name, subject.grade_level, tags)
+
+
+# ---------------------------------------------------------------------------
+# Event logging — replaces /mock/events
+# ---------------------------------------------------------------------------
+
+
+@router.post("/lessons/events")
+def log_lesson_event(payload: dict, db: Session = Depends(get_db)):
+    """Log a frontend lesson event (quiz_submit, etc.)."""
+    from app.models.events import UserEvent
+    from uuid import uuid4
+
+    try:
+        db.add(UserEvent(
+            user_id=payload.get("user_id", str(uuid4())),
+            session_id=payload.get("session_id", str(uuid4())),
+            event_type=payload.get("event", "unknown"),
+            event_data=payload,
+        ))
+        db.commit()
+    except Exception:
+        db.rollback()
+    return {"status": "ok"}
