@@ -1,18 +1,18 @@
 
-"""Feedback endpoints — Bhavya's component (Phase 2 stub)."""
+"""Feedback endpoints — Bhavya's component (Phase 2)."""
+
+from typing import Any, Dict
 from uuid import UUID
 
-from pydantic import BaseModel
-
-from app.services.attention_feedback import record_attention_signal
-"""Feedback endpoints — Bhavya's component (Phase 2)."""
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
-from typing import Dict, Any
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
+
 from app.core.database import get_db
+from app.schemas.feedback import ExplanationRequest, HintRequest, ReQuizRequest
+from app.services.attention_feedback import record_attention_signal
 from app.services.feedback_agent import feedback_agent
-from app.schemas.feedback import HintRequest, ExplanationRequest, ReQuizRequest
 
 router = APIRouter()
 
@@ -69,10 +69,15 @@ async def get_explanation(
 
 
 @router.post("/re-quiz")
-<<<<<<< HEAD
-async def trigger_requiz():
-    """Trigger re-quiz for a misconception. [Phase 2 - Bhavya]"""
-    return JSONResponse(status_code=501, content={"detail": "Not implemented."})
+async def trigger_re_quiz(
+    payload: ReQuizRequest,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """
+    Trigger re-quiz logic.
+    """
+    result = await feedback_agent.trigger_re_quiz(payload.quiz_id, payload.user_id)
+    return result
 
 
 @router.post("/attention-signal")
@@ -85,14 +90,3 @@ def post_attention_signal(body: AttentionSignalBody):
         body.rationale,
     )
     return JSONResponse(status_code=200, content={"status": "ok"})
-=======
-async def trigger_re_quiz(
-     payload: ReQuizRequest,
-     db: Session = Depends(get_db)
-) -> Dict[str, Any]:
-    """
-    Trigger re-quiz logic.
-    """
-    result = await feedback_agent.trigger_re_quiz(payload.quiz_id, payload.user_id)
-    return result
->>>>>>> dev

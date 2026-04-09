@@ -9,60 +9,57 @@ export class StudentLoginPage {
   }
 
   heading() {
-    return this.page.getByText(/who's learning today/i);
+    return this.page.getByRole('heading', { name: /ask your parent for help/i });
   }
 
-  logo() {
-    return this.page.getByText('LUMO').first();
+  emailInput() {
+    return this.page.getByPlaceholder(/parent's email address/i);
   }
 
-  // Avatar grid (student selection)
-  studentButton(displayName: string) {
-    return this.page.getByRole('button', { name: new RegExp(`login as ${displayName}`, 'i') });
+  sendCodeButton() {
+    return this.page.getByRole('button', { name: /send my code/i });
   }
 
-  noStudentsMessage() {
-    return this.page.getByText(/no student profiles yet/i);
+  resendButton() {
+    return this.page.getByRole('button', { name: /didn't get the code\? send it again/i });
   }
 
-  // PIN pad selectors
-  pinDots() {
-    return this.page.locator('[role="group"][aria-label="PIN entry"]');
-  }
-
-  digitButton(digit: number) {
-    return this.page.getByRole('button', { name: `Digit ${digit}` });
-  }
-
-  backButton() {
-    return this.page.getByRole('button', { name: /go back/i });
-  }
-
-  backspaceButton() {
-    return this.page.getByRole('button', { name: /delete last digit/i });
+  codeDigit(position: number) {
+    return this.page.getByLabel(`Code digit ${position}`);
   }
 
   errorAlert() {
-    return this.page.locator('[role="alert"]');
+    return this.page.locator('[role="alert"]').filter({ hasText: /student login code|invalid|expired/i }).first();
   }
 
-  signingInMessage() {
-    return this.page.getByText(/signing in/i);
+  messagePanel() {
+    return this.page.locator('div').filter({ hasText: /development code|choose who is learning today|student sign-in code/i }).first();
   }
 
-  async selectStudent(displayName: string) {
-    await this.studentButton(displayName).click();
+  studentChoice(displayName: string) {
+    return this.page.getByRole('button', { name: new RegExp(displayName, 'i') });
   }
 
-  async enterPin(pin: string) {
-    for (const digit of pin) {
-      await this.digitButton(Number(digit)).click();
-    }
+  learnGreeting() {
+    return this.page.getByRole('heading', { name: /hi,/i });
   }
 
-  async loginAs(displayName: string, pin: string) {
-    await this.selectStudent(displayName);
-    await this.enterPin(pin);
-    // Page auto-submits after 4 digits
+  async requestCode(email: string) {
+    await this.emailInput().fill(email);
+    await this.sendCodeButton().click();
+  }
+
+  async enterCode(code: string) {
+    await this.codeDigit(1).click();
+    await this.page.keyboard.type(code);
+  }
+
+  async chooseStudent(displayName: string) {
+    await this.studentChoice(displayName).click();
+  }
+
+  async requestAndEnterCode(email: string, code: string) {
+    await this.requestCode(email);
+    await this.enterCode(code);
   }
 }

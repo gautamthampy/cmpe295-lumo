@@ -124,4 +124,22 @@ test.describe('Student Learn page (/learn)', () => {
     await learnPage.subjectButton('Mathematics').click();
     await expect(page).toHaveURL(/subject=math/, { timeout: 5000 });
   });
+
+  test('shows the generated story mission callout when a mission exists in browser storage', async ({ page }) => {
+    await page.evaluate(() => {
+      localStorage.setItem('lumo-story-studio-lesson', JSON.stringify({
+        childName: 'Alex',
+        unitOrModule: 'Fractions Forest Adventure',
+        theme: 'Forest rescue',
+        subject: 'math',
+      }));
+      localStorage.setItem('lumo-story-studio-source', JSON.stringify('live'));
+    });
+
+    await page.reload();
+    await learnPage.waitForLoaded();
+
+    await expect(page.getByRole('heading', { name: /your custom story mission is ready/i })).toBeVisible();
+    await expect(page.getByRole('link', { name: /open story mission/i })).toBeVisible();
+  });
 });

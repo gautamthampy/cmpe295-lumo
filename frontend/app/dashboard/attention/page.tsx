@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import type { AxiosResponse } from 'axios';
 import MiniTestPanel from '@/components/attention/MiniTestPanel';
 import SelfReportPanel from '@/components/attention/SelfReportPanel';
 import { analyticsAPI } from '@/lib/api';
@@ -35,8 +36,12 @@ export default function AttentionDashboardPage() {
 
   useEffect(() => {
     Promise.all([
-      analyticsAPI.getAttentionSummary(userId, { range_days: 14 }).then((r) => r.data as SummaryResponse),
-      analyticsAPI.getAttentionPeaks(userId, { window_days: 28, min_samples: 2, top_k: 10 }).then((r) => r.data as PeaksResponse),
+      analyticsAPI
+        .getAttentionSummary(userId, { range_days: 14 })
+        .then((r: AxiosResponse<SummaryResponse>) => r.data),
+      analyticsAPI
+        .getAttentionPeaks(userId, { window_days: 28, min_samples: 2, top_k: 10 })
+        .then((r: AxiosResponse<PeaksResponse>) => r.data),
     ])
       .then(([sum, pk]) => {
         setSummary(sum);

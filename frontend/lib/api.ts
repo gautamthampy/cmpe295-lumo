@@ -1,11 +1,15 @@
-import axios from 'axios';
+import axios, {
+  AxiosError,
+  AxiosResponse,
+  InternalAxiosRequestConfig,
+} from 'axios';
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
 export const api = axios.create({ baseURL: BASE_URL });
 
 // Attach JWT — student tokens in sessionStorage, parent tokens in localStorage
-api.interceptors.request.use((config) => {
+api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   if (typeof window !== 'undefined') {
     const token =
       sessionStorage.getItem('lumo_token') ||  // student (session-scoped)
@@ -17,8 +21,8 @@ api.interceptors.request.use((config) => {
 
 // Handle 401 — clear tokens and redirect to login
 api.interceptors.response.use(
-  (res) => res,
-  (err) => {
+  (res: AxiosResponse) => res,
+  (err: AxiosError) => {
     if (err.response?.status === 401 && typeof window !== 'undefined') {
       localStorage.removeItem('lumo_token');
       sessionStorage.removeItem('lumo_token');

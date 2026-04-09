@@ -1,0 +1,194 @@
+<!DOCTYPE html><html class="light" lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Adventure Learn - Choose Your Adventure</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;family=Be+Vietnam+Pro:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "surface-dim": "#e1dca9",
+              "error": "#ba1a1a",
+              "on-error": "#ffffff",
+              "primary-fixed-dim": "#ffba38",
+              "surface": "#fffadf",
+              "on-tertiary-fixed-variant": "#005313",
+              "secondary": "#006493",
+              "surface-container-low": "#fbf5c1",
+              "tertiary-fixed-dim": "#78dc77",
+              "on-primary": "#ffffff",
+              "secondary-container": "#cae6ff",
+              "on-error-container": "#93000a",
+              "primary-fixed": "#ffdeac",
+              "on-tertiary-container": "#005313",
+              "on-background": "#1e1c00",
+              "tertiary-fixed": "#94f990",
+              "on-primary-container": "#604100",
+              "on-secondary-fixed": "#001e30",
+              "tertiary": "#006e1c",
+              "on-secondary": "#ffffff",
+              "on-tertiary-fixed": "#002204",
+              "surface-container-highest": "#eae4b1",
+              "tertiary-container": "#94f990",
+              "on-secondary-container": "#004b70",
+              "secondary-fixed": "#cae6ff",
+              "outline": "#857556",
+              "on-tertiary": "#ffffff",
+              "inverse-surface": "#34310d",
+              "primary-container": "#ffdeac",
+              "surface-variant": "#eae4b1",
+              "background": "#fffadf",
+              "outline-variant": "#d8c4a0",
+              "surface-container-high": "#f0eab6",
+              "surface-bright": "#fffadf",
+              "surface-container-lowest": "#ffffff",
+              "on-surface-variant": "#52452a",
+              "on-primary-fixed-variant": "#604100",
+              "secondary-fixed-dim": "#8dcdff",
+              "error-container": "#ffdad6",
+              "primary": "#7e5700",
+              "surface-container": "#f6f0bb",
+              "surface-tint": "#7e5700",
+              "on-primary-fixed": "#281900",
+              "on-secondary-fixed-variant": "#004b70",
+              "on-surface": "#1e1c00",
+              "inverse-on-surface": "#f8f3be",
+              "inverse-primary": "#ffba38"
+            },
+            fontFamily: {
+              "headline": ["Plus Jakarta Sans"],
+              "body": ["Be Vietnam Pro"],
+              "label": ["Plus Jakarta Sans"]
+            },
+            borderRadius: {"DEFAULT": "1rem", "lg": "2rem", "xl": "3rem", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body {
+            font-family: 'Be Vietnam Pro', sans-serif;
+            background: linear-gradient(135deg, #FFD1DC 0%, #FFF9C4 50%, #B3E5FC 100%);
+            background-attachment: fixed;
+            min-height: 100vh;
+            margin: 0;
+        }
+        .header-font {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+    </style>
+</head>
+<body class="text-on-surface selection:bg-primary-container selection:text-on-primary-container min-h-screen flex flex-col">
+<!-- TopNavBar from COMPONENTS_4 -->
+<header class="bg-[#fffadf] dark:bg-slate-950 sticky top-0 z-50 shadow-[0_8px_32px_rgba(126,87,0,0.06)]">
+<div class="flex justify-between items-center w-full max-w-7xl mx-auto px-8 py-4">
+<div class="text-2xl font-black text-[#7e5700] dark:text-[#ffba38] tracking-tight font-['Plus_Jakarta_Sans']" style="">
+                Adventure Learn
+            </div>
+<nav class="hidden md:flex items-center gap-8">
+<a class="font-['Plus_Jakarta_Sans'] font-bold text-[#52452a] dark:text-[#d8c4a0] hover:text-[#7e5700] hover:scale-105 transition-transform duration-200 ease-out" href="#" style=""><br></a>
+<a class="font-['Plus_Jakarta_Sans'] font-bold text-[#7e5700] dark:text-[#ffba38] border-b-4 border-[#ffba38] pb-1 hover:scale-105 transition-transform duration-200 ease-out" href="#" style="">Library</a>
+<a class="font-['Plus_Jakarta_Sans'] font-bold text-[#52452a] dark:text-[#d8c4a0] hover:text-[#7e5700] hover:scale-105 transition-transform duration-200 ease-out" href="#" style="">Achievements</a>
+</nav>
+<div class="flex items-center gap-4">
+<button class="p-2 text-[#7e5700] dark:text-[#ffba38] active:scale-95 transition-all duration-150" style="">
+<span class="material-symbols-outlined" data-icon="notifications" style="">notifications</span>
+</button>
+<button class="p-2 text-[#7e5700] dark:text-[#ffba38] active:scale-95 transition-all duration-150" style="">
+<span class="material-symbols-outlined" data-icon="account_circle" style="">account_circle</span>
+</button>
+</div>
+</div>
+<div class="bg-[#fbf5c1] dark:bg-slate-900 h-1"></div>
+</header>
+<main class="max-w-7xl mx-auto px-6 py-12 flex-grow flex flex-col">
+<!-- Hero Section with Relocated Owl -->
+<div class="mb-12">
+<div class="flex flex-col md:flex-row items-center md:items-end justify-between gap-8 mb-6">
+<div class="text-center md:text-left">
+<h1 class="header-font text-5xl md:text-7xl font-extrabold text-primary mb-2 tracking-tight" style="">
+                        Choose Your <span class="text-secondary" style="">Adventure!</span>
+</h1>
+</div>
+<!-- Owl Mascot & Speech Bubble Integrated into Header -->
+<div class="flex flex-col items-center md:items-end relative shrink-0">
+<div class="md:mr-16 mb-2 bg-surface-container-lowest p-4 rounded-2xl border-4 border-primary shadow-xl relative animate-bounce max-w-[200px] text-center">
+<p class="header-font font-bold text-primary text-sm" style="">Let's learn something new!</p>
+<div class="absolute -bottom-4 right-1/2 md:right-8 translate-x-1/2 md:translate-x-0 w-0 h-0 border-l-[10px] border-l-transparent border-r-[10px] border-r-transparent border-t-[14px] border-t-primary"></div>
+<div class="absolute -bottom-[10px] right-1/2 md:right-[34px] translate-x-1/2 md:translate-x-0 w-0 h-0 border-l-[7px] border-l-transparent border-r-[7px] border-r-transparent border-t-[11px] border-t-white"></div>
+</div>
+<div class="relative">
+<img alt="Friendly cartoon owl" class="w-32 h-32 md:w-36 md:h-36 object-cover rounded-full border-8 border-surface-container-highest shadow-2xl" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBuRZ8fC7H736dNlqYsogAs2xtG8ej1KUM-9v4jgLJGhWkLcNPjIGTC1pu7yolsu_x34hOQZ7GxhHz_8WEAndpM_f9AxNgqhkHTatTsNTO9rQ5H054oS_uP8xoOBVCE4NO0NXMo7lubxf1aa6wHQq5c0JzpxFDVoojrsmr1ltkSFZlpaip91l_90sb4tUBLBvZ1G5vOuALFehp0AvEbb789HNVz75ENtrroRcR4Jva9oDrZq5GfnhRfnhYi89J8cjBOCHYOYZiUOU8" style="">
+<div class="absolute -bottom-1 -right-1 bg-primary p-2 rounded-full border-2 border-surface text-white">
+<span class="material-symbols-outlined text-base" style="font-variation-settings: &quot;FILL&quot; 1;">auto_awesome</span>
+</div>
+</div>
+</div>
+</div>
+<p class="text-xl text-on-surface-variant max-w-2xl font-medium text-center md:text-left" style="">
+                Which magical path will you take today? Fun and discovery await!
+            </p>
+</div>
+<!-- 3x2 Subject Grid -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 mb-12">
+<!-- Math Card -->
+<button class="group relative flex flex-col items-center p-8 bg-primary-container rounded-[2.5rem] hover:scale-[1.05] transition-all duration-300 shadow-[0_12px_0_0_#ca9600] active:shadow-none active:translate-y-[12px]" style="">
+<div class="w-24 h-24 bg-surface-container-lowest rounded-full flex items-center justify-center mb-6 shadow-inner">
+<span aria-label="Math" class="text-6xl" role="img" style="">🧮</span>
+</div>
+<h3 class="header-font text-3xl font-black text-on-primary-container" style="">Math</h3>
+<p class="text-on-primary-fixed-variant font-bold text-base mt-2" style="">Number Magic</p>
+<div class="absolute -top-4 -right-4 w-12 h-12 bg-secondary rounded-full flex items-center justify-center text-white border-4 border-surface group-hover:rotate-12 transition-transform">
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: &quot;FILL&quot; 1;">star</span>
+</div>
+</button>
+<!-- Science Card -->
+<button class="group relative flex flex-col items-center p-8 bg-tertiary-container rounded-[2.5rem] hover:scale-[1.05] transition-all duration-300 shadow-[0_12px_0_0_#00a82a] active:shadow-none active:translate-y-[12px]" style="">
+<div class="w-24 h-24 bg-surface-container-lowest rounded-full flex items-center justify-center mb-6 shadow-inner">
+<span aria-label="Science" class="text-6xl" role="img" style="">🔬</span>
+</div>
+<h3 class="header-font text-3xl font-black text-on-tertiary-container" style="">Science</h3>
+<p class="text-on-tertiary-fixed-variant font-bold text-base mt-2" style="">Exploration</p>
+</button>
+<!-- Reading Card -->
+<button class="group relative flex flex-col items-center p-8 bg-secondary-container rounded-[2.5rem] hover:scale-[1.05] transition-all duration-300 shadow-[0_12px_0_0_#0089ca] active:shadow-none active:translate-y-[12px]" style="">
+<div class="w-24 h-24 bg-surface-container-lowest rounded-full flex items-center justify-center mb-6 shadow-inner">
+<span aria-label="Reading" class="text-6xl" role="img" style="">📖</span>
+</div>
+<h3 class="header-font text-3xl font-black text-on-secondary-container" style="">Reading</h3>
+<p class="text-on-secondary-fixed-variant font-bold text-base mt-2" style="">Story Time</p>
+</button>
+<!-- Art Card -->
+<button class="group relative flex flex-col items-center p-8 bg-error-container rounded-[2.5rem] hover:scale-[1.05] transition-all duration-300 shadow-[0_12px_0_0_#ff8a80] active:shadow-none active:translate-y-[12px]" style="">
+<div class="w-24 h-24 bg-surface-container-lowest rounded-full flex items-center justify-center mb-6 shadow-inner">
+<span aria-label="Art" class="text-6xl" role="img" style="">🎨</span>
+</div>
+<h3 class="header-font text-3xl font-black text-on-error-container" style="">Art</h3>
+<p class="text-on-error-container opacity-70 font-bold text-base mt-2" style="">Creativity</p>
+</button>
+<!-- Music Card -->
+<button class="group relative flex flex-col items-center p-8 bg-[#f0eab6] rounded-[2.5rem] hover:scale-[1.05] transition-all duration-300 shadow-[0_12px_0_0_#d1c162] active:shadow-none active:translate-y-[12px]" style="">
+<div class="w-24 h-24 bg-surface-container-lowest rounded-full flex items-center justify-center mb-6 shadow-inner">
+<span aria-label="Music" class="text-6xl" role="img" style="">🎵</span>
+</div>
+<h3 class="header-font text-3xl font-black text-[#52452a]" style="">Music</h3>
+<p class="text-[#52452a] opacity-70 font-bold text-base mt-2" style="">Rhythm &amp; Beats</p>
+</button>
+<!-- Social Studies Card -->
+<button class="group relative flex flex-col items-center p-8 bg-tertiary-fixed rounded-[2.5rem] hover:scale-[1.05] transition-all duration-300 shadow-[0_12px_0_0_#4eb44d] active:shadow-none active:translate-y-[12px]" style="">
+<div class="w-24 h-24 bg-surface-container-lowest rounded-full flex items-center justify-center mb-6 shadow-inner">
+<span aria-label="Social Studies" class="text-6xl" role="img" style="">🌍</span>
+</div>
+<h3 class="header-font text-3xl font-black text-on-tertiary-container" style="">Social Studies</h3>
+<p class="text-on-tertiary-fixed-variant font-bold text-base mt-2" style="">Our World</p>
+</button>
+</div>
+</main>
+</body></html>

@@ -1,49 +1,34 @@
-"""LUMO Backend — FastAPI application entry point."""
-import time
-from fastapi import FastAPI, Request
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.config import settings
-from app.api.v1.router import api_router
+from app.api.router import api_router
+from app.core.config import get_settings
+from app.core.database import create_db_and_tables
 
-app = FastAPI(
-    title=settings.APP_NAME,
-    version=settings.APP_VERSION,
-    description="LUMO: Multi-Agent AI Tutoring System",
-    docs_url="/api/v1/docs",
-    redoc_url="/api/v1/redoc",
-    openapi_url="/api/v1/openapi.json",
-)
+settings = get_settings()
 
-# CORS
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    if settings.auto_create_tables:
+        create_db_and_tables()
+    yield
+
+
+app = FastAPI(title=settings.app_name, lifespan=lifespan)
+app.include_router(api_router, prefix=settings.api_v1_prefix)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=settings.backend_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-# Request timing middleware
-@app.middleware("http")
-async def add_process_time_header(request: Request, call_next):
-    start = time.perf_counter()
-    response = await call_next(request)
-    duration_ms = round((time.perf_counter() - start) * 1000, 2)
-    response.headers["X-Process-Time-Ms"] = str(duration_ms)
-    return response
-
-
-# Health check
-@app.get("/health", tags=["Health"])
-async def health_check():
-    return {
-        "status": "healthy",
-        "service": "lumo-backend",
-        "version": settings.APP_VERSION,
-    }
-
-
-# Mount API router
-app.include_router(api_router, prefix="/api/v1")
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok"}

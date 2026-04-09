@@ -44,6 +44,12 @@ test.describe('Middleware: /learn redirect when no cookie token', () => {
     await page.goto('/diagnostic/some-assessment-id');
     await expect(page).toHaveURL(/\/student-login/, { timeout: 5000 });
   });
+
+  test('GET /lessons/generated without auth redirects to /student-login', async ({ page }) => {
+    await page.context().clearCookies();
+    await page.goto('/lessons/generated');
+    await expect(page).toHaveURL(/\/student-login/, { timeout: 5000 });
+  });
 });
 
 test.describe('Client-side route guard: /learn requires student role', () => {

@@ -1,5 +1,5 @@
 /**
- * Auth flow e2e tests — parent login, registration wizard, student PIN login.
+ * Auth flow e2e tests — parent login, registration wizard, student code login.
  * All API calls are intercepted so these tests run without a live backend.
  */
 import { test, expect, DEMO_STUDENTS, DEMO_SUBJECTS } from './fixtures/test-fixtures';
@@ -214,93 +214,117 @@ test.describe('Registration Wizard (/register)', () => {
 
 // ─── Student Login ───────────────────────────────────────────────────────────
 
-test.describe('Student PIN Login (/student-login)', () => {
+test.describe('Student Code Login (/student-login)', () => {
   let studentLoginPage: StudentLoginPage;
 
-  test.beforeEach(async ({ page, authMocks }) => {
+  test.beforeEach(async ({ page }) => {
     studentLoginPage = new StudentLoginPage(page);
-    // Mock the /auth/me call that loads the student list
-    await authMocks.mockStudentList(page, DEMO_STUDENTS);
     await studentLoginPage.goto();
   });
 
-  test('renders LUMO logo and "Who\'s learning today?" heading', async () => {
-    await expect(studentLoginPage.logo()).toBeVisible();
+  test('renders the student help heading and parent email request field', async () => {
     await expect(studentLoginPage.heading()).toBeVisible();
+    await expect(studentLoginPage.emailInput()).toBeVisible();
+    await expect(studentLoginPage.sendCodeButton()).toBeVisible();
   });
 
-  test('shows student avatar buttons from /auth/me', async () => {
-    await expect(studentLoginPage.studentButton('Alex')).toBeVisible({ timeout: 5000 });
-  });
-
-  test('selecting a student shows PIN pad', async () => {
-    await studentLoginPage.selectStudent('Alex');
-    await expect(studentLoginPage.pinDots()).toBeVisible();
-    // Check all 10 digit buttons are present
-    for (let d = 0; d <= 9; d++) {
-      await expect(studentLoginPage.digitButton(d)).toBeVisible();
-    }
-  });
-
-  test('back button returns to avatar grid', async ({ page }) => {
-    await studentLoginPage.selectStudent('Alex');
-    await studentLoginPage.backButton().click();
-    await expect(studentLoginPage.studentButton('Alex')).toBeVisible();
-  });
-
-  test('backspace button removes last digit', async () => {
-    await studentLoginPage.selectStudent('Alex');
-    await studentLoginPage.digitButton(1).click();
-    await studentLoginPage.digitButton(2).click();
-    await studentLoginPage.backspaceButton().click();
-    // After backspace, only 1 dot should be filled — verified by PIN state
-    await studentLoginPage.digitButton(3).click(); // now at 2 digits
-    await studentLoginPage.backspaceButton().click(); // back to 1
-    // Just verify no crash and pin pad still visible
-    await expect(studentLoginPage.pinDots()).toBeVisible();
-  });
-
-  test('correct PIN auto-submits and navigates to /learn', async ({ page, authMocks }) => {
-    await authMocks.mockStudentLogin(page);
-    await authMocks.mockSubjects(page);
-    await page.route('**/api/v1/lessons**', (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
-    );
-    await studentLoginPage.loginAs('Alex', '1234');
-    await expect(page).toHaveURL(/\/learn/, { timeout: 5000 });
-  });
-
-  test('wrong PIN shows error and clears digits', async ({ page }) => {
-    await page.route('**/api/v1/auth/students/*/login', (route) =>
+  test('requesting a code shows the generic success message and development code', async ({ page }) => {
+    await page.route('**/api/v1/auth/student-login/request-code', (route) =>
       route.fulfill({
-        status: 401,
+        status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ detail: 'Invalid PIN' }),
+        body: JSON.stringify({
+          message: 'If that family account is available, a student sign-in code is on the way.',
+          loginCode: '1234',
+          expiresIn: 600,
+        }),
       })
     );
-    await studentLoginPage.loginAs('Alex', '9999');
+
+    await studentLoginPage.requestCode('parent@example.com');
+    await expect(studentLoginPage.messagePanel()).toContainText(/development code: 1234/i);
+  });
+
+  test('valid code signs a student in and navigates to /learn', async ({ page }) => {
+    await page.route('**/api/v1/auth/student-login/request-code', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'If that family account is available, a student sign-in code is on the way.', loginCode: '1234', expiresIn: 600 }),
+      })
+    );
+    await page.route('**/api/v1/auth/student-login/verify-code', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          message: 'Signed in as Alex.',
+          authenticated: true,
+          requiresStudentSelection: false,
+          accessToken: 'eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQ3MDAwMDAwMDAsInN1YiI6InN0dWRlbnQtZGVtby1pZCIsInJvbGUiOiJzdHVkZW50In0.fake_signature',
+          expiresIn: 3600,
+          student: { student_id: 'student-demo-id', display_name: 'Alex', grade_level: 3, avatar_id: 'owl' },
+          students: [],
+        }),
+      })
+    );
+
+    await studentLoginPage.requestAndEnterCode('parent@example.com', '1234');
+    await expect(page).toHaveURL(/\/learn/, { timeout: 5000 });
+    await expect(studentLoginPage.learnGreeting()).toContainText(/hi, alex/i);
+  });
+
+  test('invalid code shows an error banner', async ({ page }) => {
+    await page.route('**/api/v1/auth/student-login/verify-code', (route) =>
+      route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'This student login code is invalid or expired.' }),
+      })
+    );
+
+    await studentLoginPage.enterCode('9999');
     await expect(studentLoginPage.errorAlert()).toBeVisible({ timeout: 5000 });
-    await expect(studentLoginPage.errorAlert()).toContainText(/wrong pin/i);
+    await expect(studentLoginPage.errorAlert()).toContainText(/invalid or expired/i);
   });
 
-  test('shows "no student profiles yet" when list is empty', async ({ page, authMocks }) => {
-    await page.unroute(`**/api/v1/auth/me`);
-    await authMocks.mockStudentList(page, []);
-    await studentLoginPage.goto();
-    await expect(studentLoginPage.noStudentsMessage()).toBeVisible({ timeout: 5000 });
-  });
+  test('multi-student verification shows the learner chooser before sign-in completes', async ({ page }) => {
+    await page.route('**/api/v1/auth/student-login/verify-code', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          message: 'Choose who is learning today.',
+          authenticated: false,
+          requiresStudentSelection: true,
+          selectionToken: 'selection-token',
+          students: [
+            { student_id: 'student-demo-id', display_name: 'Alex', grade_level: 3, avatar_id: 'owl' },
+            { student_id: 'student-002', display_name: 'Sam', grade_level: 4, avatar_id: 'fox' },
+          ],
+        }),
+      })
+    );
+    await page.route('**/api/v1/auth/student-login/select-student', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          message: 'Signed in as Sam.',
+          authenticated: true,
+          requiresStudentSelection: false,
+          accessToken: 'eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQ3MDAwMDAwMDAsInN1YiI6InN0dWRlbnQtMDAyIiwicm9sZSI6InN0dWRlbnQifQ.fake_signature',
+          expiresIn: 3600,
+          student: { student_id: 'student-002', display_name: 'Sam', grade_level: 4, avatar_id: 'fox' },
+          students: [],
+        }),
+      })
+    );
 
-  test('shows loading state while fetching students', async ({ page }) => {
-    // Delay the /auth/me response
-    await page.unroute(`**/api/v1/auth/me`);
-    await page.route('**/api/v1/auth/me', async (route) => {
-      await new Promise((r) => setTimeout(r, 400));
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ students: [] }) });
-    });
-    await studentLoginPage.goto();
-    // Loading text should appear briefly
-    await expect(page.getByText(/loading/i)).toBeVisible({ timeout: 2000 }).catch(() => {
-      // May have resolved too fast — that's fine
-    });
+    await studentLoginPage.enterCode('2222');
+    await expect(studentLoginPage.messagePanel()).toContainText(/choose who is learning today/i);
+    await studentLoginPage.chooseStudent('Sam');
+    await expect(page).toHaveURL(/\/learn/, { timeout: 5000 });
+    await expect(studentLoginPage.learnGreeting()).toContainText(/hi, sam/i);
   });
 });

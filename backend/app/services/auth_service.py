@@ -49,9 +49,9 @@ class AuthService:
     # Token creation
     # ------------------------------------------------------------------
 
-    def create_parent_token(self, parent_id: UUID) -> str:
+    def create_parent_token(self, parent_id: UUID | str) -> str:
         expire = datetime.now(timezone.utc) + timedelta(
-            minutes=self.settings.JWT_EXPIRE_MINUTES
+            minutes=self.settings.session_ttl_hours * 60
         )
         payload = {
             "sub": str(parent_id),
@@ -59,12 +59,19 @@ class AuthService:
             "exp": expire,
         }
         return jwt.encode(
-            payload, self.settings.JWT_SECRET, algorithm=self.settings.JWT_ALGORITHM
+            payload, self.settings.jwt_secret, algorithm=self.settings.jwt_algorithm
         )
 
-    def create_student_token(self, student_id: UUID, parent_id: UUID) -> str:
+    def create_student_token(
+        self,
+        student_id: UUID | str,
+        parent_id: UUID | str,
+        *,
+        display_name: str | None = None,
+        grade_level: int | None = None,
+    ) -> str:
         expire = datetime.now(timezone.utc) + timedelta(
-            minutes=self.settings.STUDENT_TOKEN_EXPIRE_MINUTES
+            minutes=self.settings.student_token_expire_minutes
         )
         payload = {
             "sub": str(student_id),
@@ -72,8 +79,25 @@ class AuthService:
             "role": "student",
             "exp": expire,
         }
+        if display_name is not None:
+            payload["display_name"] = display_name
+        if grade_level is not None:
+            payload["grade_level"] = grade_level
         return jwt.encode(
-            payload, self.settings.JWT_SECRET, algorithm=self.settings.JWT_ALGORITHM
+            payload, self.settings.jwt_secret, algorithm=self.settings.jwt_algorithm
+        )
+
+    def create_student_selection_token(self, parent_id: UUID | str) -> str:
+        expire = datetime.now(timezone.utc) + timedelta(
+            minutes=self.settings.student_selection_token_ttl_minutes
+        )
+        payload = {
+            "sub": str(parent_id),
+            "role": "student-selection",
+            "exp": expire,
+        }
+        return jwt.encode(
+            payload, self.settings.jwt_secret, algorithm=self.settings.jwt_algorithm
         )
 
     # ------------------------------------------------------------------
@@ -84,11 +108,11 @@ class AuthService:
         """Decode and validate a JWT. Raises JWTError on failure."""
         return jwt.decode(
             token,
-            self.settings.JWT_SECRET,
-            algorithms=[self.settings.JWT_ALGORITHM],
+            self.settings.jwt_secret,
+            algorithms=[self.settings.jwt_algorithm],
         )
 
-    def get_role(self, token: str) -> Literal["parent", "student"]:
+    def get_role(self, token: str) -> Literal["parent", "student", "student-selection"]:
         payload = self.decode_token(token)
         return payload.get("role", "student")
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import type { AxiosResponse } from 'axios';
 import { analyticsAPI, sessionsAPI } from '@/lib/api';
 
 interface AgentMessage {
@@ -83,7 +84,7 @@ export default function AgentPanel() {
   useEffect(() => {
     sessionsAPI
       .create(userId)
-      .then((res) => setSessionId(res.data.session_id as string))
+      .then((res: AxiosResponse<{ session_id: string }>) => setSessionId(res.data.session_id))
       .catch(() => setSessionId(null));
   }, [userId]);
 

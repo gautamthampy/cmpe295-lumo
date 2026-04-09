@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Sign In - Academic Portal</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&amp;family=Plus+Jakarta+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "secondary": "#39693b",
+              "tertiary": "#56482e",
+              "on-tertiary-fixed-variant": "#53452b",
+              "inverse-primary": "#acc7ff",
+              "on-tertiary-container": "#f1dbb8",
+              "primary-fixed": "#d7e2ff",
+              "surface-container": "#f1ede6",
+              "error-container": "#ffdad6",
+              "surface-variant": "#e6e2db",
+              "on-secondary-fixed-variant": "#215025",
+              "error": "#ba1a1a",
+              "tertiary-fixed-dim": "#d8c4a2",
+              "tertiary-container": "#6f6044",
+              "surface-container-low": "#f7f3ec",
+              "surface-tint": "#335da4",
+              "on-tertiary": "#ffffff",
+              "on-tertiary-fixed": "#241a05",
+              "primary": "#19498e",
+              "on-secondary-fixed": "#002105",
+              "surface-container-highest": "#e6e2db",
+              "outline-variant": "#c3c6d2",
+              "on-secondary-container": "#3e6d3e",
+              "on-primary-fixed-variant": "#13458b",
+              "surface-dim": "#dddad2",
+              "secondary-container": "#b8edb3",
+              "surface-container-lowest": "#ffffff",
+              "secondary-fixed-dim": "#9fd49b",
+              "inverse-surface": "#31302c",
+              "on-primary-fixed": "#001a40",
+              "on-primary-container": "#d1deff",
+              "on-surface-variant": "#434751",
+              "on-surface": "#1c1c17",
+              "on-error-container": "#93000a",
+              "primary-fixed-dim": "#acc7ff",
+              "surface": "#fdf9f1",
+              "on-primary": "#ffffff",
+              "on-error": "#ffffff",
+              "outline": "#737782",
+              "surface-bright": "#fdf9f1",
+              "on-secondary": "#ffffff",
+              "primary-container": "#3761a8",
+              "tertiary-fixed": "#f5e0bc",
+              "background": "#fdf9f1",
+              "secondary-fixed": "#baf0b6",
+              "surface-container-high": "#ece8e0",
+              "on-background": "#1c1c17",
+              "inverse-on-surface": "#f4f0e9"
+            },
+            fontFamily: {
+              "headline": ["Manrope"],
+              "body": ["Plus Jakarta Sans"],
+              "label": ["Plus Jakarta Sans"]
+            },
+            borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      }
+      body {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+      }
+      h1, h2, h3 {
+        font-family: 'Manrope', sans-serif;
+      }
+    </style>
+</head>
+<body class="bg-surface text-on-surface min-h-screen flex flex-col">
+<!-- Note: TopNavBar and Footer are suppressed as per "The Destination Rule" for Transactional pages -->
+<main class="flex-grow flex items-center justify-center px-6 py-12">
+<div class="w-full max-w-[480px] space-y-8">
+<!-- Brand Anchor -->
+<div class="text-center space-y-3">
+<div class="inline-flex items-center justify-center w-16 h-16 rounded-xl bg-primary-container/10 mb-4">
+<span class="material-symbols-outlined text-primary text-4xl" data-icon="school">school</span>
+</div>
+<h1 class="text-3xl font-extrabold text-primary tracking-tight">LUMO:AI Study Coach</h1>
+<p class="text-on-surface-variant font-body">Welcome Back, Parent</p>
+</div>
+<!-- Login Card -->
+<div class="bg-surface-container-lowest rounded-xl p-8 md:p-10 shadow-[0_24px_48px_-12px_rgba(28,28,23,0.06)] border border-outline-variant/10">
+<form class="space-y-6">
+<!-- Email Field -->
+<div class="space-y-2">
+<label class="block text-sm font-semibold text-on-surface-variant font-label" for="email">Email Address</label>
+<div class="relative">
+<input class="w-full bg-surface-container-highest border-none rounded-lg px-4 py-3.5 text-on-surface focus:ring-2 focus:ring-primary-container transition-all placeholder:text-outline" id="email" name="email" placeholder="e.g. parent@example.com" type="email"/>
+</div>
+</div>
+<!-- Password Field -->
+<div class="space-y-2">
+<div class="flex justify-between items-center">
+<label class="block text-sm font-semibold text-on-surface-variant font-label" for="password">Password</label>
+<a class="text-sm font-medium text-primary hover:text-primary-container transition-colors" href="#">Forgot Password?</a>
+</div>
+<div class="relative">
+<input class="w-full bg-surface-container-highest border-none rounded-lg px-4 py-3.5 text-on-surface focus:ring-2 focus:ring-primary-container transition-all placeholder:text-outline" id="password" name="password" placeholder="••••••••" type="password"/>
+</div>
+</div>
+<!-- Remember Me -->
+<div class="flex items-center gap-3">
+<input class="w-5 h-5 rounded border-outline-variant text-primary focus:ring-primary-container" id="remember" type="checkbox"/>
+<label class="text-sm text-on-surface-variant font-body" for="remember">Keep me signed in for 30 days</label>
+</div>
+<!-- Sign In Button -->
+<button class="w-full py-4 px-6 bg-gradient-to-br from-primary to-primary-container text-on-primary font-bold rounded-xl shadow-lg shadow-primary/20 hover:scale-[0.98] transition-all duration-150" type="submit">
+                    Sign In
+                </button>
+</form>
+<!-- Divider -->
+<div class="relative my-8">
+<div class="absolute inset-0 flex items-center">
+<div class="w-full border-t border-outline-variant/20"></div>
+</div>
+<div class="relative flex justify-center text-xs">
+<span class="px-4 bg-surface-container-lowest text-outline font-label uppercase tracking-widest">or continue with</span>
+</div>
+</div>
+<!-- Social Sign In -->
+<div class="grid grid-cols-2 gap-4">
+<button class="flex items-center justify-center gap-2 py-3 px-4 bg-surface-container-low hover:bg-surface-container-high rounded-lg transition-colors border border-outline-variant/5">
+<img alt="" class="w-5 h-5" data-alt="Google logo icon" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAOIOrmANwRFfBExF3C5JidLeNH-cji5MILV9mprbJqT_AqKyNL4nnp3BTaEVRhLXr-A2KHJhj2-5vUf49YJkUanvIIrykgD9GvNiWRmFTHuDVopp0HLBN6USKGGl8WhBth3nYb6CqR4E3NmJPvcJhEr5wEazW0VNMVw4SjpsMk60fK-h8-JV6i124fI5CiO2gMQAGfnOGo_6WFCUsBUbiO9njY0DrTf1p3-xhiZgyLcoWjcJWk7aQJeA3L5yU3XOc9JlC6a8zqvtQ"/>
+<span class="text-sm font-semibold font-label">Google</span>
+</button>
+<button class="flex items-center justify-center gap-2 py-3 px-4 bg-surface-container-low hover:bg-surface-container-high rounded-lg transition-colors border border-outline-variant/5">
+<span class="material-symbols-outlined text-xl" data-icon="apple" style="font-variation-settings: 'FILL' 1;">ios</span>
+<span class="text-sm font-semibold font-label">Apple</span>
+</button>
+</div>
+</div>
+<!-- Bottom Link -->
+<div class="text-center">
+<p class="text-on-surface-variant font-body">
+                Don't have an account? 
+                <a class="text-primary font-bold hover:underline decoration-2 underline-offset-4 ml-1" href="#">Sign Up</a>
+</p>
+</div>
+<!-- Supportive Text -->
+<div class="pt-4 text-center">
+<p class="text-xs text-tertiary leading-relaxed max-w-[320px] mx-auto opacity-80">
+                By signing in, you agree to our terms and receive important academic updates for your student's progress.
+            </p>
+</div>
+</div>
+</main>
+<!-- Simple Transactional Footer -->
+<footer class="w-full py-8 px-8 border-t border-outline-variant/10">
+<div class="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4 opacity-60">
+<!-- Terms of Service link removed as requested -->
+</div>
+</footer>
+</body></html>

@@ -53,13 +53,9 @@ class FeedbackAgent:
         """
         t0 = time.time()
         
-        # In a real scenario, we'd fetch previous hints from DB to avoid repetition
-        
         try:
-            # 3. Call LLM to generate hint
             if self.gemini.model:
                 # Use Socratic Hint Generator to build advanced prompt
-                # Mocking mastery score as 0.5 for demonstration
                 prompt = socratic_hint_generator.generate_prompt_context(
                     question_text=question_text,
                     hint_level=hint_level,
@@ -67,9 +63,6 @@ class FeedbackAgent:
                     misconception_type=misconception_type
                 )
                 
-                # We call the basic generate_feedback since generate_hint in gemini_service 
-                # might not take customized full prompts directly. 
-                # To maintain simplicity with existing gemini_service, we pass the custom prompt as "question"
                 hint_text = await self.gemini.generate_hint(
                     question=prompt, 
                     student_answer=None,
@@ -80,7 +73,6 @@ class FeedbackAgent:
                 
             latency_ms = int((time.time() - t0) * 1000)
 
-            # 4. Log event to Analytics (Persisted)
             self._log_feedback_event(db, user_id, session_id, "hint_generated", {
                 "question_id": question_id,
                 "latency_ms": latency_ms,
@@ -96,7 +88,6 @@ class FeedbackAgent:
 
         except Exception as e:
             logger.error(f"Error generating hint: {e}")
-            # Fallback to static hint
             return {
                 "hint_text": "Review the core concepts related to this question.",
                 "hint_level": hint_level,
@@ -169,13 +160,62 @@ class FeedbackAgent:
                 "is_fallback": True
             }
 
+    async def generate_motivation(
+        self,
+        db: Session,
+        user_id: str,
+        session_id: Optional[str] = None,
+        error_count: int = 1,
+        question_context: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Generate a standalone motivational message after repeated errors.
+        
+        Args:
+            db: Database session
+            user_id: UUID of the user
+            session_id: Optional session UUID
+            error_count: Number of recent incorrect answers
+            question_context: Optional topic/subject string
+            
+        Returns:
+            Dict containing motivational message and metadata
+        """
+        t0 = time.time()
+
+        try:
+            message = await self.gemini.generate_motivation(
+                error_count=error_count,
+                question_context=question_context,
+            )
+
+            # Apply tone guardrails
+            message = tone_guardrails.sanitize_motivation(message)
+
+            latency_ms = int((time.time() - t0) * 1000)
+
+            self._log_feedback_event(db, user_id, session_id, "motivation_generated", {
+                "question_id": "n/a",
+                "latency_ms": latency_ms,
+            })
+
+            return {
+                "message": message,
+                "error_count": error_count,
+            }
+
+        except Exception as e:
+            logger.error(f"Error generating motivation: {e}")
+            return {
+                "message": "Every mistake helps you grow. Keep going!",
+                "error_count": error_count,
+                "is_fallback": True,
+            }
+
     async def trigger_re_quiz(self, quiz_id: str, user_id: str) -> Dict[str, Any]:
         """
         Determine if a re-quiz is needed based on performance (Mocked).
         """
-        # Logic: Check user mastery/score (Mocked)
-        # If score < threshold, trigger re-quiz
-        
         return {
             "re_quiz_triggered": True,
             "reason": "mastery_gap_detected",
@@ -203,7 +243,7 @@ class FeedbackAgent:
                 question_id=data.get("question_id"),
                 feedback_type=event_type,
                 latency_ms=data.get("latency_ms"),
-                llm_model=self.gemini.model if self.gemini else "unknown",
+                llm_model=self.gemini.model_name if self.gemini else "unknown",
                 misconception_type=data.get("misconception_type")
             )
             db.add(log)
@@ -215,3 +255,4 @@ class FeedbackAgent:
 
 # Global instance
 feedback_agent = FeedbackAgent()
+

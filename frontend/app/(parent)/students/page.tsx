@@ -1,142 +1,132 @@
-'use client';
+import { cookies } from "next/headers";
+import Link from "next/link";
+import { redirect } from "next/navigation";
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { authAPI, diagnosticsAPI } from '@/lib/api';
-import { useAuthStore } from '@/lib/store/auth';
+import { AuthCard, AuthTopBar } from "@/components/auth/auth-shell";
+import { ParentStudentCodeButton } from "@/components/auth/parent-student-code-button";
+import { StudentProfileCreator } from "@/components/auth/student-profile-creator";
+import { authRoutes, type ParentDashboardPayload, type SessionPayload } from "@/lib/auth";
 
-type Subject = { subject_id: string; name: string; slug: string };
-type StudentProfile = {
-  student_id: string;
-  display_name: string;
-  grade_level: number;
-  avatar_id: string;
-  consent_given: boolean;
-  subjects: Subject[];
-};
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1";
+const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? "lumo_session";
 
-const AVATAR_EMOJIS: Record<string, string> = {
-  'avatar-01': '🦁', 'avatar-02': '🐯', 'avatar-03': '🐻', 'avatar-04': '🦊',
-  'avatar-05': '🐼', 'avatar-06': '🦋', 'avatar-07': '🐬', 'avatar-08': '🦄',
-};
+async function readSession(): Promise<SessionPayload | null> {
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get(SESSION_COOKIE_NAME)?.value;
 
-export default function StudentsPage() {
-  const router = useRouter();
-  const { isAuthenticated, role } = useAuthStore();
-  const [students, setStudents] = useState<StudentProfile[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [diagnosticState, setDiagnosticState] = useState<Record<string, boolean>>({});
+  if (!sessionCookie) {
+    return null;
+  }
 
-  useEffect(() => {
-    if (!isAuthenticated() || role !== 'parent') {
-      router.push('/login');
-      return;
-    }
-    authAPI.getMe()
-      .then((res) => setStudents(res.data.students || []))
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, []);
+  const response = await fetch(`${API_BASE_URL}${authRoutes.session}`, {
+    headers: { Cookie: `${SESSION_COOKIE_NAME}=${sessionCookie}` },
+    cache: "no-store",
+  });
 
-  const requestDiagnostic = async (student: StudentProfile) => {
-    if (!student.subjects.length) {
-      alert(`${student.display_name} has no subjects enrolled yet.`);
-      return;
-    }
-    setDiagnosticState((s) => ({ ...s, [student.student_id]: true }));
-    try {
-      const res = await diagnosticsAPI.generate({
-        student_id: student.student_id,
-        subject_id: student.subjects[0].subject_id,
-      });
-      const assessmentId = res.data.assessment_id;
-      // Copy link to clipboard
-      const link = `${window.location.origin}/diagnostic/${assessmentId}`;
-      await navigator.clipboard.writeText(link);
-      alert(`Diagnostic created! Share this link with ${student.display_name}:\n${link}`);
-    } catch {
-      alert('Failed to create diagnostic. Please try again.');
-    } finally {
-      setDiagnosticState((s) => ({ ...s, [student.student_id]: false }));
-    }
-  };
+  if (!response.ok) {
+    return null;
+  }
 
-  if (loading) {
-    return (
-      <div className="p-8 text-center">
-        <p className="text-gray-400 animate-pulse">Loading students...</p>
-      </div>
-    );
+  return (await response.json()) as SessionPayload;
+}
+
+async function readParentDashboard(): Promise<ParentDashboardPayload | null> {
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+
+  if (!sessionCookie) {
+    return null;
+  }
+
+  const response = await fetch(`${API_BASE_URL}${authRoutes.parentDashboard}`, {
+    headers: { Cookie: `${SESSION_COOKIE_NAME}=${sessionCookie}` },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return (await response.json()) as ParentDashboardPayload;
+}
+
+export default async function StudentsPage() {
+  const session = await readSession();
+
+  if (!session?.authenticated) {
+    redirect("/sign-in?next=/students");
+  }
+
+  if (!session.emailVerified) {
+    const emailQuery = session.email ? `?email=${encodeURIComponent(session.email)}` : "";
+    redirect(`/verify-email${emailQuery}`);
+  }
+
+  const dashboard = await readParentDashboard();
+  if (!dashboard) {
+    redirect("/sign-in?next=/students");
   }
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">My Students</h1>
-        <Link
-          href="/register?step=2"
-          className="btn-primary px-4 py-2 rounded-xl text-sm font-medium"
-        >
-          + Add Student
-        </Link>
-      </div>
-
-      {students.length === 0 ? (
-        <div className="glass-panel p-8 rounded-2xl text-center">
-          <p className="text-4xl mb-3">👶</p>
-          <p className="text-gray-600 font-medium">No students yet</p>
-          <p className="text-gray-400 text-sm mt-1">Add your child to get started</p>
-          <Link href="/register" className="btn-primary mt-4 inline-block px-6 py-2 rounded-xl text-sm">
-            Set up a profile
-          </Link>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {students.map((student) => (
-            <div key={student.student_id} className="glass-panel p-5 rounded-2xl">
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-2xl bg-violet-100 flex items-center justify-center text-3xl flex-shrink-0">
-                  {AVATAR_EMOJIS[student.avatar_id] ?? '🌟'}
-                </div>
-                <div className="flex-1">
-                  <h2 className="text-lg font-semibold text-gray-800">{student.display_name}</h2>
-                  <p className="text-sm text-gray-500">Grade {student.grade_level}</p>
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {student.subjects.map((s) => (
-                      <span key={s.subject_id} className="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full">
-                        {s.name}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex gap-2 mt-4">
-                <button
-                  onClick={() => requestDiagnostic(student)}
-                  disabled={diagnosticState[student.student_id]}
-                  className="flex-1 py-2 rounded-xl border border-violet-300 text-violet-700 text-sm font-medium hover:bg-violet-50 transition-colors disabled:opacity-50"
-                >
-                  {diagnosticState[student.student_id] ? 'Creating...' : '🔍 Find gaps'}
-                </button>
-                <Link
-                  href={`/lessons/editor?student_id=${student.student_id}`}
-                  className="flex-1 py-2 rounded-xl border border-cyan-300 text-cyan-700 text-sm font-medium hover:bg-cyan-50 transition-colors text-center"
-                >
-                  ✨ Generate lesson
-                </Link>
-                <Link
-                  href={`/lessons/analytics?student_id=${student.student_id}`}
-                  className="flex-1 py-2 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-colors text-center"
-                >
-                  📊 Progress
-                </Link>
-              </div>
+    <>
+      <AuthTopBar />
+      <main className="min-h-screen bg-surface-container-low px-6 py-24">
+        <div className="mx-auto max-w-5xl space-y-8">
+          <AuthCard accent className="space-y-4">
+            <p className="font-label text-xs font-bold uppercase tracking-[0.3em] text-outline">Family Access</p>
+            <h1 className="font-headline text-4xl font-extrabold tracking-[-0.05em] text-on-surface">Student Sign-In Codes</h1>
+            <p className="max-w-3xl font-body text-base leading-7 text-on-surface-variant">
+              Create learner profiles, then generate short-lived sign-in codes for the right child from the parent dashboard. Each code works once, expires quickly, and is also emailed to the parent address on file.
+            </p>
+            <div className="flex flex-wrap gap-4">
+              <Link href="/portal" className="rounded-xl bg-surface-container-low px-4 py-3 font-label font-semibold text-on-surface transition-colors hover:bg-surface-container-high">
+                Back to portal
+              </Link>
             </div>
-          ))}
+          </AuthCard>
+
+          <AuthCard className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-start">
+            <div className="space-y-3">
+              <p className="font-label text-xs font-bold uppercase tracking-[0.3em] text-outline">Profile setup</p>
+              <h2 className="font-headline text-3xl font-extrabold tracking-[-0.04em] text-on-surface">Open the student login path for every new family</h2>
+              <p className="font-body text-base leading-7 text-on-surface-variant">
+                New families can&apos;t receive a student sign-in code until at least one learner exists on the account. Add a profile here, then generate a code from the matching learner card.
+              </p>
+            </div>
+            <StudentProfileCreator />
+          </AuthCard>
+
+          {dashboard.students.length === 0 ? (
+            <AuthCard className="space-y-3">
+              <p className="font-headline text-2xl font-extrabold text-on-surface">No student profiles yet</p>
+              <p className="font-body leading-7 text-on-surface-variant">
+                Create the first learner above to unlock one-time sign-in codes for this family account.
+              </p>
+            </AuthCard>
+          ) : (
+            <section className="space-y-4">
+              <div className="space-y-2">
+                <p className="font-label text-xs font-bold uppercase tracking-[0.3em] text-outline">Current learners</p>
+                <h2 className="font-headline text-2xl font-extrabold text-on-surface">Generate a code for the right child</h2>
+              </div>
+              <div className="grid gap-5 md:grid-cols-2">
+              {dashboard.students.map((student) => (
+                <AuthCard key={student.student_id} className="space-y-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="font-headline text-2xl font-extrabold text-on-surface">{student.display_name}</p>
+                      <p className="font-body text-sm leading-6 text-on-surface-variant">Grade {student.grade_level}</p>
+                    </div>
+                    <span className="rounded-full bg-primary-fixed px-3 py-1 font-label text-xs font-bold uppercase tracking-[0.2em] text-primary">{student.avatar_id}</span>
+                  </div>
+                  <ParentStudentCodeButton studentId={student.student_id} studentName={student.display_name} />
+                </AuthCard>
+              ))}
+              </div>
+            </section>
+          )}
         </div>
-      )}
-    </div>
+      </main>
+    </>
   );
 }
