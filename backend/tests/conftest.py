@@ -1,74 +1,55 @@
-import os
-from collections.abc import Generator
+"""
+Pytest configuration for LUMO backend tests.
 
-os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-pytest-only-12345")
-
+Sets up a SQLite in-memory database that patches out the PostgreSQL-specific
+schema qualification (content.lessons → lessons) so tests run without Docker.
+"""
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import sessionmaker
 
-from app.core.config import Settings, get_settings
-from app.core.database import create_db_and_tables, drop_db_tables, get_db
-from app.main import app
+from app.core.database import Base
 
 
-@pytest.fixture
-def test_settings() -> Settings:
-    return Settings(
-        database_url="sqlite://",
-        jwt_secret="test-jwt-secret-for-pytest-only-12345",
-        backend_cors_origins=["http://localhost:3000"],
-        session_cookie_name="lumo_session",
-        session_cookie_secure=False,
-        debug_auth_tokens=True,
-    )
+SQLALCHEMY_TEST_URL = "sqlite:///:memory:"
 
 
-@pytest.fixture
-def db_engine() -> Generator[Engine, None, None]:
+@pytest.fixture(scope="session")
+def test_engine():
     engine = create_engine(
-        "sqlite://",
+        SQLALCHEMY_TEST_URL,
         connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-        future=True,
     )
-    create_db_and_tables(bind=engine)
-    try:
-        yield engine
-    finally:
-        drop_db_tables(bind=engine)
-        engine.dispose()
+
+    # SQLite doesn't support schemas. Attach PRAGMA to make it work.
+    @event.listens_for(engine, "connect")
+    def set_sqlite_pragma(dbapi_conn, connection_record):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.close()
+
+    # Patch the Lesson model's schema so SQLite can create the table
+    from app.models.lesson import Lesson
+    original_args = Lesson.__table_args__
+    Lesson.__table_args__ = {}  # Remove schema for SQLite
+
+    Base.metadata.create_all(bind=engine)
+    yield engine
+
+    Lesson.__table_args__ = original_args
+    Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture(scope="session")
+def test_session_factory(test_engine):
+    return sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
 
 @pytest.fixture
-def db_session_factory(db_engine: Engine):
-    return sessionmaker(bind=db_engine, autoflush=False, autocommit=False, expire_on_commit=False)
-
-
-@pytest.fixture
-def db_session(db_session_factory) -> Generator[Session, None, None]:
-    session = db_session_factory()
+def db_session(test_session_factory):
+    session = test_session_factory()
     try:
         yield session
     finally:
+        session.rollback()
         session.close()
-
-
-@pytest.fixture
-def client(db_session: Session, test_settings: Settings) -> Generator[TestClient, None, None]:
-    def override_get_db() -> Generator[Session, None, None]:
-        yield db_session
-
-    def override_get_settings() -> Settings:
-        return test_settings
-
-    app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_settings] = override_get_settings
-
-    with TestClient(app) as test_client:
-        yield test_client
-
-    app.dependency_overrides.clear()

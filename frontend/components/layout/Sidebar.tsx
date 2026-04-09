@@ -4,37 +4,19 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const navItems = [
-  { href: '/',                     label: 'Dashboard',     icon: '🏠', color: 'from-violet-400 to-purple-300' },
-  { href: '/dashboard/attention',   label: 'Focus',         icon: '📈', color: 'from-emerald-400 to-teal-300' },
-  { href: '/students',         label: 'My Students',   icon: '👶', color: 'from-emerald-400 to-teal-300' },
-  { href: '/lessons',              label: 'Lessons',       icon: '📚', color: 'from-sky-400 to-cyan-300' },
-  { href: '/lessons/editor',       label: 'Lesson Editor', icon: '✨', color: 'from-amber-300 to-yellow-200' },
-  { href: '/lessons/analytics',    label: 'Analytics',     icon: '📊', color: 'from-pink-400 to-rose-300' },
-
+  { href: '/',                 label: 'Dashboard',     icon: '🏠', color: 'from-violet-400 to-purple-300' },
+  { href: '/lessons',          label: 'Lessons',       icon: '📚', color: 'from-sky-400 to-cyan-300' },
+  { href: '/lessons/editor',   label: 'Lesson Editor', icon: '✨', color: 'from-amber-300 to-yellow-200' },
+  { href: '/lessons/analytics',label: 'Analytics',     icon: '📊', color: 'from-pink-400 to-rose-300' },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
 
-  const normalize = (p: string) => {
-    if (p === '/') return '/';
-    return p.replace(/\/+$/, '');
+  const isActive = (href: string) => {
+    if (href === '/') return pathname === '/';
+    return pathname.startsWith(href);
   };
-
-  const currentPath = normalize(pathname);
-
-  const matchesPath = (href: string) => {
-    const h = normalize(href);
-    if (h === '/') return currentPath === '/';
-    return currentPath === h || currentPath.startsWith(`${h}/`);
-  };
-
-  // Only highlight ONE item: the most specific (longest) matching route.
-  const activeHref =
-    navItems
-      .map((i) => i.href)
-      .filter(matchesPath)
-      .sort((a, b) => normalize(b).length - normalize(a).length)[0] ?? null;
 
   return (
     <aside
@@ -62,7 +44,7 @@ export default function Sidebar() {
         <nav aria-label="Main navigation">
           <ul className="space-y-2">
             {navItems.map(({ href, label, icon, color }) => {
-              const active = href === activeHref;
+              const active = isActive(href);
               return (
                 <li key={href}>
                   <Link

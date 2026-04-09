@@ -47,13 +47,6 @@ class AccessibilityIssue(BaseModel):
     message: str
 
 
-class AttentionHint(BaseModel):
-    """Planner-facing hint from Attention Agent (peak windows vs current time)."""
-
-    peak_window_suggestion: bool = False
-    message: str = ""
-
-
 class RenderedLessonResponse(BaseModel):
     lesson_id: UUID
     html_content: str
@@ -66,7 +59,6 @@ class RenderedLessonResponse(BaseModel):
     next_lesson_id: Optional[UUID] = None
     quiz_context: QuizContext
     interactive_activities: list[dict] = []
-    attention_hint: AttentionHint = Field(default_factory=AttentionHint)
 
 
 # --------------- Quiz schemas (used by mock endpoint) ---------------
