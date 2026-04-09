@@ -14,7 +14,6 @@ from app.schemas.sessions import SessionCreate, SessionResponse
 
 router = APIRouter()
 
-
 def _session_response(session: SessionModel) -> SessionResponse:
     return SessionResponse(
         session_id=cast(UUID, session.session_id),
@@ -44,7 +43,6 @@ def create_session(
     db.refresh(session)
     return _session_response(session)
 
-
 @router.post("/{session_id}/end", response_model=SessionResponse)
 def end_session(
     session_id: UUID,
@@ -56,9 +54,18 @@ def end_session(
         raise HTTPException(status_code=404, detail="Session not found.")
 
     if session.ended_at is None:
+
         setattr(session, "ended_at", datetime.now(timezone.utc))
         db.add(session)
         db.commit()
         db.refresh(session)
 
-    return _session_response(session)
+    return SessionResponse(
+        session_id=session.session_id,
+        user_id=session.user_id,
+        started_at=session.started_at,
+        ended_at=session.ended_at,
+        device_type=session.device_type,
+        user_agent=session.user_agent,
+    )
+

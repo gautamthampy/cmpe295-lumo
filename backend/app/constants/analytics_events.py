@@ -1,5 +1,6 @@
 """Event type names aligned with docs/event_schema.json (oneOf variants)."""
 
+# All event_type values defined in docs/event_schema.json as of Phase 3.
 SCHEMA_EVENT_TYPES = frozenset(
     {
         "lesson_started",
@@ -21,11 +22,13 @@ SCHEMA_EVENT_TYPES = frozenset(
     }
 )
 
+# Types handled with special validation before persistence (mini-test payloads).
 MINI_TEST_EVENT_TYPES = frozenset({"attention_mini_test_started", "attention_mini_test_completed"})
 
 SELF_REPORT_EVENT_TYPES = frozenset({"attention_self_report"})
 GAZE_EVENT_TYPES = frozenset({"gaze_attention_likelihood"})
 
+# Schema events stored as telemetry only (no attention pipeline), excluding types with dedicated handlers above.
 PERSIST_ONLY_EVENT_TYPES = (
     SCHEMA_EVENT_TYPES
     - {"question_answered"}
@@ -33,3 +36,4 @@ PERSIST_ONLY_EVENT_TYPES = (
     - SELF_REPORT_EVENT_TYPES
     - GAZE_EVENT_TYPES
 )
+

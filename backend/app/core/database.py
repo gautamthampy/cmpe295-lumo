@@ -12,7 +12,7 @@ class Base(DeclarativeBase):
 
 
 settings = get_settings()
-engine = create_engine(settings.database_url, future=True)
+engine = create_engine(settings.DATABASE_URL, future=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
 
 
@@ -31,10 +31,16 @@ def get_supported_tables(bind: Engine) -> list:
 
 
 def create_db_and_tables(bind: Engine | None = None) -> None:
+    # Ensure ORM models are imported so SQLAlchemy metadata is fully registered.
+    import app.models  # noqa: F401
+
     target_engine = bind or engine
     Base.metadata.create_all(bind=target_engine, tables=get_supported_tables(target_engine))
 
 
 def drop_db_tables(bind: Engine | None = None) -> None:
+    # Keep model imports symmetric for create/drop behavior in tests.
+    import app.models  # noqa: F401
+
     target_engine = bind or engine
     Base.metadata.drop_all(bind=target_engine, tables=get_supported_tables(target_engine))

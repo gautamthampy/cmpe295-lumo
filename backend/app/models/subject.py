@@ -8,6 +8,18 @@ from sqlalchemy.orm import relationship
 from app.core.database import Base
 
 
+class ContentLesson(Base):
+    """
+    Lightweight compatibility model so legacy foreign keys to content.lessons
+    can resolve in SQLAlchemy metadata during tests.
+    """
+
+    __tablename__ = "lessons"
+    __table_args__ = {"schema": "content"}
+
+    lesson_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+
 class Subject(Base):
     __tablename__ = "subjects"
     __table_args__ = {"schema": "content"}
@@ -92,7 +104,7 @@ class StudentSubject(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     student_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("auth.students.student_id", ondelete="CASCADE"),
+        ForeignKey("students.student_id", ondelete="CASCADE"),
         nullable=False,
     )
     subject_id = Column(
@@ -130,7 +142,7 @@ class GenerationRun(Base):
     grade_level = Column(Integer, nullable=False)
     student_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("auth.students.student_id", ondelete="SET NULL"),
+        ForeignKey("students.student_id", ondelete="SET NULL"),
         nullable=True,
     )
     prompt_hash = Column(Text, nullable=True)
@@ -176,7 +188,7 @@ class DiagnosticAssessment(Base):
     )
     student_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("auth.students.student_id", ondelete="CASCADE"),
+        ForeignKey("students.student_id", ondelete="CASCADE"),
         nullable=True,
     )
     topic_id = Column(

@@ -13,7 +13,7 @@ def record_attention_signal(
     recommended_action: str,
     rationale: str,
 ) -> None:
-    """Notify downstream consumers that attention recommends an action.
+    """Notify downstream consumers that attention recommends an action (recap/break/continue).
 
     Full Feedback Agent hint generation remains separate; this only records the signal.
     """

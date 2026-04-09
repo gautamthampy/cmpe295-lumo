@@ -1,7 +1,6 @@
 """Attention scoring and drift detection logic integrated with Redis.
 
-Computes attention scores from behavioral features (latency, errors, idle time,
-variability) and detects drift using EMA-based thresholds with hysteresis.
+This adapts the standalone attention service into the main backend stack.
 """
 from __future__ import annotations
 
@@ -14,7 +13,7 @@ from typing import Dict, Tuple
 
 from redis import Redis
 
-from app.core.config import get_settings
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -22,17 +21,19 @@ ROLLING_K = 10
 FEATURE_KEY_TEMPLATE = "attn:features:{user_id}:{session_id}"
 DRIFT_KEY_TEMPLATE = "attn:drift:{user_id}:{session_id}"
 
-# TTL for attention Redis keys; aligned with session duration
+# TTL for attention Redis keys; aligned with session duration so keys expire after inactivity
 ATTN_REDIS_TTL_SECONDS = 4 * 60 * 60  # 4 hours
 
 _redis_client: Redis | None = None
+
+events_processed_total = 0
+drifts_detected_total = 0
 
 
 def get_redis() -> Redis:
     global _redis_client
     if _redis_client is None:
-        settings = get_settings()
-        _redis_client = Redis.from_url(settings.redis_url, decode_responses=True)
+        _redis_client = Redis.from_url(settings.REDIS_URL, decode_responses=True)
     return _redis_client
 
 
@@ -85,17 +86,19 @@ def update_features_and_compute(
     key = FEATURE_KEY_TEMPLATE.format(user_id=user_id, session_id=session_id)
     latencies, correct_flags, idle_state_ms = _load_feature_state(key)
 
+    # Use latency from answered questions
     if latency_ms is not None:
         latencies.append(int(latency_ms))
         if is_correct is not None:
             correct_flags.append(bool(is_correct))
 
+    # Track most recent idle duration, if provided
     if idle_ms is not None:
         idle_state_ms = float(idle_ms)
 
     _save_feature_state(key, latencies, correct_flags, idle_state_ms)
 
-    # Normalized latency
+    # Normalized latency: current latency if present, else mean
     if latency_ms is not None:
         lat_ms_norm = _clip(latency_ms / 3000.0)
     elif latencies:
@@ -130,7 +133,8 @@ def update_features_and_compute(
 
 
 def compute_attention_score(features: AttentionFeatures) -> Tuple[float, Dict]:
-    """Combine normalized features into a 0-1 attention score."""
+    """Combine normalized features into a 0–1 attention score."""
+    # Simple, tunable weights
     w_lat = 0.35
     w_err = 0.35
     w_idle = 0.20
@@ -150,6 +154,17 @@ def compute_attention_score(features: AttentionFeatures) -> Tuple[float, Dict]:
     details = asdict(features)
     details["risk"] = risk
     details["score"] = score
+    logger.debug(
+        "attention_score_computed",
+        extra={
+            "lat_ms_norm": features.lat_ms_norm,
+            "err_norm": features.err_norm,
+            "idle_norm": features.idle_norm,
+            "var_norm": features.var_norm,
+            "risk": risk,
+            "score": score,
+        },
+    )
     return score, details
 
 
@@ -227,7 +242,7 @@ def _save_drift_state(key: str, state: DriftState) -> None:
 
 
 def evaluate_drift(user_id: str, session_id: str, score: float) -> Tuple[bool, str, bool]:
-    """EMA-based drift detection with hysteresis.
+    """EMA-based drift detection with hysteresis and simple trend check.
 
     Returns (drift, recommended_action, drift_just_entered).
     """
@@ -238,7 +253,8 @@ def evaluate_drift(user_id: str, session_id: str, score: float) -> Tuple[bool, s
 
     now_ts = time()
     alpha = 0.20
-    ema_new = alpha * score + (1.0 - alpha) * state.ema
+    ema_old = state.ema
+    ema_new = alpha * score + (1.0 - alpha) * ema_old
 
     window_seconds = 60.0
     if state.window_start_ts == 0.0 or now_ts - state.window_start_ts > window_seconds:
@@ -252,6 +268,8 @@ def evaluate_drift(user_id: str, session_id: str, score: float) -> Tuple[bool, s
     threshold_low = 0.40
     threshold_recover = 0.55
     trend_drop_min = 0.10
+
+    global drifts_detected_total
 
     if not drift:
         if score < threshold_low and trend_drop >= trend_drop_min:
@@ -269,10 +287,22 @@ def evaluate_drift(user_id: str, session_id: str, score: float) -> Tuple[bool, s
     _save_drift_state(key, state)
 
     if drift:
+        drifts_detected_total += 1
         if score < 0.25:
             recommended_action = "break"
         else:
             recommended_action = "recap"
+        logger.info(
+            "attention_drift_detected",
+            extra={
+                "user_id": user_id,
+                "session_id": session_id,
+                "score": score,
+                "ema": ema_new,
+                "trend_drop": trend_drop,
+                "recommended_action": recommended_action,
+            },
+        )
 
     return drift, recommended_action, drift_just_entered
 
@@ -286,3 +316,4 @@ def get_drift_status(user_id: str, session_id: str) -> Tuple[bool, str]:
     if state.ema < 0.25:
         return True, "break"
     return True, "recap"
+

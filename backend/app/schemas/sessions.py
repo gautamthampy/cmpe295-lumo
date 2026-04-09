@@ -1,4 +1,3 @@
-"""Pydantic schemas for learning sessions."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -20,3 +19,4 @@ class SessionResponse(BaseModel):
     ended_at: datetime | None = None
     device_type: str | None = None
     user_agent: str | None = None
+

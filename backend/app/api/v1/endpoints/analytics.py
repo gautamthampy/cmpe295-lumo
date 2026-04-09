@@ -1,13 +1,13 @@
 """Analytics & Attention endpoints.
 
-Wires the attention engine into the main backend:
+This wires the attention engine into the main backend, using:
 - events.user_events for raw interaction telemetry
 - learner.attention_metrics for derived attention history
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import List, cast
+from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
@@ -21,7 +21,7 @@ from app.constants.analytics_events import (
     PERSIST_ONLY_EVENT_TYPES,
     SELF_REPORT_EVENT_TYPES,
 )
-from app.core.config import get_settings
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.attention import AttentionMetric
 from app.models.events import UserEvent
@@ -50,19 +50,6 @@ from app.services.mini_test_scoring import mini_test_score_to_action
 
 router = APIRouter()
 
-settings = get_settings()
-
-
-def _snapshot_from_metric(row: AttentionMetric) -> AttentionSnapshot:
-    return AttentionSnapshot(
-        recorded_at=cast(datetime, row.recorded_at),
-        session_id=cast(UUID | None, row.session_id),
-        lesson_id=cast(UUID | None, row.lesson_id),
-        attention_score=cast(float | None, row.attention_score),
-        avg_response_latency_ms=cast(int | None, row.avg_response_latency_ms),
-        error_rate=cast(float | None, row.error_rate),
-    )
-
 
 def _persist_event(event: Event, db: Session) -> None:
     """Persist a generic event to events.user_events."""
@@ -83,12 +70,12 @@ def _persist_event(event: Event, db: Session) -> None:
 def ingest_event(event: Event, db: Session = Depends(get_db)):
     """Ingest a user event and update attention metrics.
 
-    - question_answered: updates attention pipeline and persists.
-    - attention_mini_test_*: validated and persisted.
-    - Other schema event types: persisted only (no attention scoring).
+    - question_answered: updates attention pipeline and persists to user_events.
+    - attention_mini_test_started / attention_mini_test_completed: validated and persisted to user_events.
+    - Other schema event types: persisted to user_events only (no attention scoring).
     - Unknown event types: 202 acknowledged, not persisted.
     """
-    # Mini-test events
+    # Mini-test events: validate session, validate payload, persist to user_events.
     if event.event_type in MINI_TEST_EVENT_TYPES:
         session_row = db.get(SessionModel, event.session_id)
         if session_row is None:
@@ -96,12 +83,11 @@ def ingest_event(event: Event, db: Session = Depends(get_db)):
                 status_code=400,
                 content={"detail": "Unknown session_id. Create a session before logging events."},
             )
-        completed = None
         if event.event_type == "attention_mini_test_started":
             try:
                 AttentionMiniTestStartedData.model_validate(event.data)
             except Exception:
-                pass
+                pass  # data is optional; allow empty or extra fields
         else:
             try:
                 completed = AttentionMiniTestCompletedData.model_validate(event.data)
@@ -111,7 +97,7 @@ def ingest_event(event: Event, db: Session = Depends(get_db)):
                     content={"detail": "Invalid mini-test completed data", "error": str(e)},
                 )
         _persist_event(event, db)
-        if event.event_type == "attention_mini_test_completed" and completed is not None:
+        if event.event_type == "attention_mini_test_completed":
             attn_score, recommended = mini_test_score_to_action(completed.score)
             event_ts_utc = event.timestamp.astimezone(timezone.utc)
             metric = AttentionMetric(
@@ -126,7 +112,7 @@ def ingest_event(event: Event, db: Session = Depends(get_db)):
             )
             db.add(metric)
         db.commit()
-        if event.event_type == "attention_mini_test_completed" and completed is not None:
+        if event.event_type == "attention_mini_test_completed":
             attn_score, recommended = mini_test_score_to_action(completed.score)
             return JSONResponse(
                 status_code=202,
@@ -141,9 +127,8 @@ def ingest_event(event: Event, db: Session = Depends(get_db)):
             content={"detail": "Mini-test event accepted and stored."},
         )
 
-    # Gaze events
     if event.event_type in GAZE_EVENT_TYPES:
-        if not getattr(settings, "enable_gaze_telemetry", False):
+        if not settings.ENABLE_GAZE_TELEMETRY:
             return JSONResponse(status_code=202, content={"detail": "Gaze telemetry disabled."})
         session_row = db.get(SessionModel, event.session_id)
         if session_row is None:
@@ -162,7 +147,6 @@ def ingest_event(event: Event, db: Session = Depends(get_db)):
         db.commit()
         return JSONResponse(status_code=202, content={"detail": "Gaze telemetry stored."})
 
-    # Self-report events
     if event.event_type in SELF_REPORT_EVENT_TYPES:
         session_row = db.get(SessionModel, event.session_id)
         if session_row is None:
@@ -181,7 +165,6 @@ def ingest_event(event: Event, db: Session = Depends(get_db)):
         db.commit()
         return JSONResponse(status_code=202, content={"detail": "Self-report stored."})
 
-    # Non-question_answered schema events: persist only
     if event.event_type != "question_answered":
         if event.event_type in PERSIST_ONLY_EVENT_TYPES:
             session_row = db.get(SessionModel, event.session_id)
@@ -198,7 +181,7 @@ def ingest_event(event: Event, db: Session = Depends(get_db)):
             )
         return JSONResponse(status_code=202, content={"detail": "Event accepted (ignored for attention)."})
 
-    # question_answered — full attention pipeline
+    # Validate session exists before updating Redis; invalid sessions must not pollute drift state.
     session_row = db.get(SessionModel, event.session_id)
     if session_row is None:
         return JSONResponse(
@@ -258,6 +241,8 @@ def ingest_event(event: Event, db: Session = Depends(get_db)):
             rationale,
         )
 
+    # Use the event's timestamp (in UTC) for time buckets so analytics can
+    # reason about peak hours and weekdays.
     hour_of_day = event_ts_utc.hour
     day_of_week = event_ts_utc.weekday()
 
@@ -299,11 +284,12 @@ def get_current_attention(user_id: UUID, session_id: UUID, db: Session = Depends
     )
 
     if row is None or row.attention_score is None:
+        # No data yet: default to stable attention.
         score = 1.0
         drift, recommended_action = False, "continue"
         rationale = rationale_from_score(score)
     else:
-        score = float(cast(float, row.attention_score))
+        score = float(row.attention_score)
         drift, recommended_action = get_drift_status(
             user_id=str(user_id),
             session_id=str(session_id),
@@ -334,10 +320,22 @@ def get_attention_metrics(user_id: UUID, db: Session = Depends(get_db)):
         .all()
     )
 
-    snapshots = [_snapshot_from_metric(row) for row in rows]
+    snapshots = [
+        AttentionSnapshot(
+            recorded_at=row.recorded_at,
+            session_id=row.session_id,
+            lesson_id=row.lesson_id,
+            attention_score=row.attention_score,
+            avg_response_latency_ms=row.avg_response_latency_ms,
+            error_rate=row.error_rate,
+        )
+        for row in rows
+    ]
 
+    # Use most recent metric (if any) to derive drift view and rationale.
     if rows:
         last_session_id = rows[0].session_id
+        last_score = float(rows[0].attention_score) if rows[0].attention_score is not None else 0.0
         drift, recommended_action = get_drift_status(
             user_id=str(user_id),
             session_id=str(last_session_id) if last_session_id is not None else "unknown",
@@ -423,6 +421,7 @@ def get_attention_summary(
         for row in rows
     ]
 
+    # Simple drift_count heuristic: number of metrics in window with score < 0.4
     drift_count = (
         db.query(func.count(AttentionMetric.id))
         .filter(
@@ -446,12 +445,40 @@ def get_attention_summary(
     )
 
 
+@router.get("/dashboard")
+def get_dashboard():
+    """Deprecated: use GET /analytics/dashboard/{user_id} for dashboard data."""
+    return JSONResponse(
+        status_code=200,
+        content={
+            "detail": "Deprecated. Use GET /api/v1/analytics/dashboard/{user_id} with a user UUID.",
+            "deprecated": True,
+        },
+    )
+
+
+@router.get("/mastery/{user_id}")
+def get_mastery_scores(user_id: UUID):
+    """Placeholder for mastery vs attention correlation."""
+    return JSONResponse(
+        status_code=200,
+        content={
+            "user_id": str(user_id),
+            "detail": "Mastery analytics implementation pending.",
+        },
+    )
+
+
 @router.get("/dashboard/{user_id}")
 def get_dashboard_data(user_id: UUID, db: Session = Depends(get_db)):
     """Get a minimal dashboard view for a user.
 
-    Includes: lessons_completed, quizzes_taken, attention_summary.
+    This aligns loosely with DashboardData in api_contracts.yaml, focusing on:
+    - lessons_completed, quizzes_taken from events.user_events
+    - a simple overall_mastery placeholder
+    - a basic attention_summary derived from attention_metrics
     """
+    # Lessons completed & quizzes taken from events.user_events.
     lessons_completed = (
         db.query(func.count(UserEvent.event_id))
         .filter(
@@ -471,6 +498,7 @@ def get_dashboard_data(user_id: UUID, db: Session = Depends(get_db)):
         or 0
     )
 
+    # Simple attention summary: average score across all metrics for the user.
     avg_score = (
         db.query(func.avg(AttentionMetric.attention_score))
         .filter(AttentionMetric.user_id == user_id, AttentionMetric.attention_score.isnot(None))
@@ -484,6 +512,7 @@ def get_dashboard_data(user_id: UUID, db: Session = Depends(get_db)):
         "drift_count": 0,
     }
 
+    # For now, overall_mastery/strengths/weaknesses/time_spent are simple placeholders.
     dashboard = {
         "user_id": str(user_id),
         "lessons_completed": int(lessons_completed),
@@ -496,3 +525,4 @@ def get_dashboard_data(user_id: UUID, db: Session = Depends(get_db)):
     }
 
     return JSONResponse(status_code=200, content=dashboard)
+

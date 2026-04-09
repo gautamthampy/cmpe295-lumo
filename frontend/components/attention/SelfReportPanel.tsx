@@ -1,10 +1,7 @@
-"use client";
+'use client';
 
-import { useCallback, useState } from "react";
-import {
-  createLearningSession,
-  ingestAnalyticsEvent,
-} from "@/lib/analytics-api";
+import { useCallback, useState } from 'react';
+import { analyticsAPI, sessionsAPI } from '@/lib/api';
 
 export default function SelfReportPanel({ userId }: { userId: string }) {
   const [level, setLevel] = useState(0.75);
@@ -14,8 +11,8 @@ export default function SelfReportPanel({ userId }: { userId: string }) {
 
   const ensureSession = useCallback(async () => {
     if (sessionId) return sessionId;
-    const res = await createLearningSession(userId);
-    const sid = res.session_id;
+    const res = await sessionsAPI.create(userId);
+    const sid = res.data.session_id as string;
     setSessionId(sid);
     return sid;
   }, [sessionId, userId]);
@@ -25,16 +22,16 @@ export default function SelfReportPanel({ userId }: { userId: string }) {
     setStatus(null);
     try {
       const sid = await ensureSession();
-      await ingestAnalyticsEvent({
-        event_type: "attention_self_report",
+      await analyticsAPI.ingestEvent({
+        event_type: 'attention_self_report',
         timestamp: new Date().toISOString(),
         user_id: userId,
         session_id: sid,
-        data: { focus_level: level, label: "slider" },
+        data: { focus_level: level, label: 'slider' },
       });
-      setStatus("Thanks — saved.");
+      setStatus('Thanks — saved.');
     } catch {
-      setStatus("Could not save (is the backend running?)");
+      setStatus('Could not save (is the backend running?)');
     } finally {
       setBusy(false);
     }
@@ -46,10 +43,8 @@ export default function SelfReportPanel({ userId }: { userId: string }) {
       aria-label="Self-report focus"
     >
       <h2 className="text-lg font-bold text-slate-800 mb-2">How focused do you feel?</h2>
-      <p className="text-slate-500 text-sm mb-4">
-        Move the slider and tap Save (optional check-in).
-      </p>
-      <div className="mb-4 flex items-center gap-4">
+      <p className="text-slate-500 text-sm mb-4">Move the slider and tap Save (optional check-in).</p>
+      <div className="flex items-center gap-4 mb-4">
         <input
           type="range"
           min={0}
@@ -59,19 +54,17 @@ export default function SelfReportPanel({ userId }: { userId: string }) {
           className="flex-1 accent-violet-600"
           aria-valuetext={`${Math.round(level * 100)} percent`}
         />
-        <span className="w-12 text-sm font-bold text-slate-700">
-          {Math.round(level * 100)}%
-        </span>
+        <span className="text-sm font-bold text-slate-700 w-12">{Math.round(level * 100)}%</span>
       </div>
       <button
         type="button"
         onClick={submit}
         disabled={busy}
-        className="rounded-xl border-2 border-violet-200 bg-white px-5 py-2.5 text-sm font-semibold text-violet-700 shadow-sm hover:bg-violet-50 disabled:opacity-50"
+        className="btn-secondary text-sm px-5 py-2.5 disabled:opacity-50"
       >
-        {busy ? "Saving…" : "Save check-in"}
+        {busy ? 'Saving…' : 'Save check-in'}
       </button>
-      {status && <p className="mt-2 text-sm text-slate-600">{status}</p>}
+      {status && <p className="text-sm mt-2 text-slate-600">{status}</p>}
     </section>
   );
 }

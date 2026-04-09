@@ -23,3 +23,4 @@ class UserEvent(Base):
         default=lambda: datetime.now(timezone.utc),
     )
     anonymized_at = Column(DateTime(timezone=True), nullable=True)
+

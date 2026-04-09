@@ -29,7 +29,11 @@ def get_attention_peaks_for_user(
     min_samples: int = 5,
     top_k: int = 5,
 ) -> List[AttentionPeakWindow]:
-    """Compute peak attention windows for a user over a recent time window."""
+    """Compute peak attention windows for a user over a recent time window.
+
+    This mirrors the design spec's attention_peaks_daily(user_id, day_of_week, hour_of_day, avg_score, samples)
+    concept, but implemented as a helper query instead of a DB view.
+    """
     cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
 
     query = (
@@ -62,3 +66,4 @@ def get_attention_peaks_for_user(
         )
         for row in rows
     ]
+
