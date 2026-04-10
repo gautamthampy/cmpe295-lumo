@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 
 import {
   INITIAL_PROGRESS,
@@ -65,6 +66,8 @@ function getLearningLabel(lesson: LessonSpec) {
 }
 
 export function GeneratedLessonPreview() {
+  const router = useRouter();
+  const missionSuccessRedirectRef = useRef(false);
   const [lesson, setLesson] = useState<LessonSpec | null>(null);
   const [source, setSource] = useState<"live" | "seed" | null>(null);
   const [progress, setProgress] = useState<StudentProgress>(INITIAL_PROGRESS);
@@ -125,6 +128,10 @@ export function GeneratedLessonPreview() {
     };
   }, []);
 
+  useEffect(() => {
+    missionSuccessRedirectRef.current = false;
+  }, [lesson?.lessonId]);
+
   function persistState(next: {
     progress: StudentProgress;
     activeMechanicId: TypedMechanicId;
@@ -184,6 +191,17 @@ export function GeneratedLessonPreview() {
       eventLog: [],
       storyCompleted,
     });
+
+    if (
+      params.correct &&
+      params.event === "scene_choice_unlock" &&
+      !missionSuccessRedirectRef.current
+    ) {
+      missionSuccessRedirectRef.current = true;
+      window.setTimeout(() => {
+        router.push("/learn");
+      }, 1400);
+    }
   }
 
   const learningLabel = lesson ? getLearningLabel(lesson) : "new ideas";

@@ -102,7 +102,7 @@ export const VALIDATION_METADATA_SCHEMA = z.object({
 
 export const LESSON_SPEC_SCHEMA = z.object({
   lessonId: z.string().min(1),
-  gradeLevel: z.literal(2).default(2),
+  gradeLevel: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(2),
   district: DISTRICT_SCHEMA,
   subject: SUBJECT_SCHEMA,
   curriculumCode: z.string().min(1),

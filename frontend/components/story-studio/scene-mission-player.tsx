@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import type { LessonSpec, TypedSceneSpec } from "@/lib/story-studio/lesson-spec";
 
@@ -76,59 +76,190 @@ function ChoiceTransformMission({
   spec: Extract<TypedSceneSpec, { kind: "choice_transform" }>;
   onResult: SceneMissionPlayerProps["onResult"];
 }) {
-  const [choiceId, setChoiceId] = useState<string | null>(null);
-  const currentChoice = spec.choices.find((choice) => choice.id === choiceId) ?? null;
-  const isSuccess = Boolean(currentChoice?.isCorrect);
+  const correctIds = useMemo(
+    () => new Set(spec.choices.filter((c) => c.isCorrect).map((c) => c.id)),
+    [spec.choices]
+  );
 
-  function choose(nextChoiceId: string) {
-    const nextChoice = spec.choices.find((choice) => choice.id === nextChoiceId);
-    if (!nextChoice) return;
-    setChoiceId(nextChoiceId);
-    onResult({
-      correct: nextChoice.isCorrect,
-      event: nextChoice.isCorrect ? "scene_choice_unlock" : "scene_choice_retry",
+  const [pickedCorrectIds, setPickedCorrectIds] = useState<Set<string>>(() => new Set());
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedbackTone, setFeedbackTone] = useState<"wrong" | "nudge" | null>(null);
+  const [completed, setCompleted] = useState(false);
+  const [wrongFlashId, setWrongFlashId] = useState<string | null>(null);
+  const [wrongTapCount, setWrongTapCount] = useState(0);
+  const flashTimerRef = useRef<number | null>(null);
+
+  const isSuccess = completed;
+
+  useEffect(() => {
+    return () => {
+      if (flashTimerRef.current !== null) {
+        window.clearTimeout(flashTimerRef.current);
+      }
+    };
+  }, []);
+
+  function allCorrectPicked(picked: Set<string>): boolean {
+    if (picked.size !== correctIds.size) {
+      return false;
+    }
+    for (const id of correctIds) {
+      if (!picked.has(id)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function partialNudgeMessage(picked: Set<string>): string {
+    const missing = [...correctIds].filter((id) => !picked.has(id));
+    if (missing.length === 0) {
+      return "";
+    }
+    if (correctIds.size === 1) {
+      return "";
+    }
+    if (picked.size === 0) {
+      return "Tap every answer that fits. You can pick more than one!";
+    }
+    if (missing.length === 1) {
+      return "Great job — tap one more answer that fits!";
+    }
+    return "Nice! Keep tapping the other answers that fit, too.";
+  }
+
+  function handleChoiceTap(choiceId: string) {
+    if (completed) {
+      return;
+    }
+
+    const choice = spec.choices.find((c) => c.id === choiceId);
+    if (!choice) {
+      return;
+    }
+
+    if (pickedCorrectIds.has(choiceId)) {
+      setPickedCorrectIds((prev) => {
+        const next = new Set(prev);
+        next.delete(choiceId);
+        if (next.size === 0) {
+          setFeedback("Tap the answers that match the story. Wrong taps won't stick.");
+          setFeedbackTone("nudge");
+        } else {
+          const msg = partialNudgeMessage(next);
+          setFeedback(msg || "Keep going — tap the rest that fit!");
+          setFeedbackTone("nudge");
+        }
+        return next;
+      });
+      return;
+    }
+
+    if (!choice.isCorrect) {
+      if (flashTimerRef.current !== null) {
+        window.clearTimeout(flashTimerRef.current);
+      }
+      setWrongFlashId(choiceId);
+      flashTimerRef.current = window.setTimeout(() => {
+        setWrongFlashId(null);
+        flashTimerRef.current = null;
+      }, 700);
+
+      setWrongTapCount((n) => {
+        const next = n + 1;
+        queueMicrotask(() => {
+          setFeedback(
+            next >= 2
+              ? `${spec.failureMessage} That one didn’t stay — try a different tap.`
+              : spec.failureMessage
+          );
+          setFeedbackTone("wrong");
+        });
+        return next;
+      });
+      onResult({ correct: false, event: "scene_choice_retry" });
+      return;
+    }
+
+    setPickedCorrectIds((prev) => {
+      const next = new Set(prev);
+      next.add(choiceId);
+      if (allCorrectPicked(next)) {
+        queueMicrotask(() => {
+          setCompleted(true);
+          setFeedback(null);
+          setFeedbackTone(null);
+          onResult({ correct: true, event: "scene_choice_unlock" });
+        });
+      } else {
+        queueMicrotask(() => {
+          setFeedback(partialNudgeMessage(next));
+          setFeedbackTone("nudge");
+        });
+      }
+      return next;
     });
   }
 
   return (
     <Frame spec={spec} badge="Agentic Scene Spec">
+      <p className="mt-3 text-base font-bold leading-snug text-slate-700">
+        Tap the pictures. Wrong taps wiggle and don’t stick — keep trying until you find all the right ones!
+      </p>
       <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1.15fr]">
         <div className="rounded-3xl border-2 border-white/80 bg-white/90 p-4 text-center">
           <p className="text-xs font-black uppercase tracking-wide text-slate-500">{spec.surfaceLabel}</p>
           <div className={`mt-3 text-7xl ${isSuccess ? "animate-pulse" : ""}`}>
             {isSuccess ? spec.successEmoji : spec.idleEmoji}
           </div>
-          <p className="mt-3 text-sm font-semibold text-slate-700">
+          <p className="mt-3 text-base font-semibold leading-snug text-slate-700">
             {isSuccess ? spec.successMessage : spec.helperText}
           </p>
         </div>
-        <div className="grid gap-2">
-          {spec.choices.map((choice) => (
-            <button
-              key={choice.id}
-              type="button"
-              onClick={() => choose(choice.id)}
-              className={`rounded-2xl border-2 px-4 py-3 text-left text-sm font-bold transition ${
-                choiceId === choice.id
-                  ? "border-slate-900 bg-slate-100 text-slate-900"
-                  : "border-slate-200 bg-white hover:border-slate-300"
-              }`}
-            >
-              <span className="mr-2 text-lg">{choice.emoji}</span>
-              {choice.label}
-            </button>
-          ))}
+        <div className="grid gap-3">
+          {spec.choices.map((choice) => {
+            const picked = pickedCorrectIds.has(choice.id);
+            const flashing = wrongFlashId === choice.id;
+            return (
+              <button
+                key={choice.id}
+                type="button"
+                aria-pressed={picked}
+                disabled={completed}
+                onClick={() => handleChoiceTap(choice.id)}
+                className={`min-h-[3.25rem] rounded-2xl border-4 px-4 py-4 text-left text-base font-black transition active:scale-[0.98] ${
+                  completed && picked
+                    ? "border-emerald-400 bg-emerald-50 text-emerald-950"
+                    : picked
+                      ? "border-emerald-500 bg-emerald-50/90 text-emerald-950 shadow-sm"
+                      : flashing
+                        ? "animate-pulse border-rose-400 bg-rose-50 text-rose-950"
+                        : "border-slate-200 bg-white hover:border-cyan-300 hover:bg-cyan-50/40"
+                } ${completed && !picked ? "opacity-60" : ""}`}
+              >
+                <span className="mr-2 inline-block w-6 text-center text-xl">{picked ? "✓" : ""}</span>
+                <span className="mr-2 text-2xl leading-none">{choice.emoji}</span>
+                {choice.label}
+              </button>
+            );
+          })}
         </div>
       </div>
-      {choiceId ? (
+      {feedback && !completed ? (
         <div
-          className={`mt-4 rounded-2xl border-2 px-4 py-3 text-sm font-semibold ${
-            isSuccess
-              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-              : "border-amber-200 bg-amber-50 text-amber-900"
+          role={feedbackTone === "wrong" ? "alert" : "status"}
+          className={`mt-4 rounded-2xl border-2 px-4 py-4 text-base font-bold leading-snug ${
+            feedbackTone === "wrong"
+              ? "border-rose-200 bg-rose-50 text-rose-950"
+              : "border-sky-200 bg-sky-50 text-sky-950"
           }`}
         >
-          {isSuccess ? spec.rewardFact : spec.failureMessage}
+          {feedback}
+        </div>
+      ) : null}
+      {isSuccess ? (
+        <div className="mt-4 rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-4 py-4 text-base font-bold leading-snug text-emerald-900">
+          {spec.rewardFact}
         </div>
       ) : null}
     </Frame>
