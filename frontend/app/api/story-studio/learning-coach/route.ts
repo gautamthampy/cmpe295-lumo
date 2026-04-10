@@ -8,6 +8,7 @@ import {
   writeJsonCache,
 } from "@/lib/story-studio/server/gemini-cache";
 import { getServerLlmProvider, ollamaGenerateText } from "@/lib/story-studio/server/llm-provider";
+import { redactPii } from "@/lib/story-studio/server/pii-redaction";
 
 export const runtime = "nodejs";
 
@@ -51,13 +52,13 @@ function extractJsonObject(raw: string): string | null {
 
 function buildPrompt(params: z.infer<typeof REQUEST_SCHEMA>) {
   return JSON.stringify({
-    childName: params.lesson.childName,
+    childName: redactPii(params.lesson.childName),
     gradeLevel: params.lesson.gradeLevel,
     unit: params.lesson.unitOrModule,
     subject: params.lesson.subject,
     concept: params.lesson.conceptFamily,
     mode: params.mode,
-    studentMessage: params.studentMessage,
+    studentMessage: redactPii(params.studentMessage),
     rules: {
       doNotGiveFinalAnswer: true,
       keepVocabularyYoung: true,
@@ -71,6 +72,7 @@ function buildOfflineCoach(
   studentMessage: string,
   childName: string
 ): z.infer<typeof RESPONSE_SCHEMA> {
+  const safeChildName = redactPii(childName);
   const lower = studentMessage.toLowerCase();
   const asksForAnswer =
     lower.includes("answer") ||
@@ -80,7 +82,7 @@ function buildOfflineCoach(
 
   if (asksForAnswer) {
     return {
-      coachReply: `I will not give the final answer, ${childName}, but I can help you think it through one clue at a time.`,
+      coachReply: `I will not give the final answer, ${safeChildName}, but I can help you think it through one clue at a time.`,
       nextStep: "Underline two key words in the question and tell what each word is asking you to find.",
       reflectionQuestion: "Which clue in the question gives you the strongest hint?",
       blockedDirectAnswer: true,
@@ -89,7 +91,7 @@ function buildOfflineCoach(
   }
 
   return {
-    coachReply: `Great effort, ${childName}. Let's solve this by steps so your brain does the hard work.`,
+    coachReply: `Great effort, ${safeChildName}. Let's solve this by steps so your brain does the hard work.`,
     nextStep: "Say what you already know, then choose one tiny step you can test right now.",
     reflectionQuestion: "After that step, what changed and what does it tell you?",
     blockedDirectAnswer: false,

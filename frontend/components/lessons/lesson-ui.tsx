@@ -949,6 +949,27 @@ export function LessonsAnalyticsExperience() {
                     : "—"}
                 </p>
               </div>
+              <div className="rounded-[2rem] bg-white/84 p-6 shadow-[0_18px_36px_rgba(60,53,18,0.12)]">
+                <p className="font-['Plus_Jakarta_Sans'] text-xs font-black uppercase tracking-[0.28em] text-[#8a5d00]">Mastery</p>
+                <p className="mt-3 text-3xl font-black text-[#1f1b00]">{Math.round(dashboard.overall_mastery)}%</p>
+              </div>
+              <div className="rounded-[2rem] bg-white/84 p-6 shadow-[0_18px_36px_rgba(60,53,18,0.12)]">
+                <p className="font-['Plus_Jakarta_Sans'] text-xs font-black uppercase tracking-[0.28em] text-[#8a5d00]">Time on lessons</p>
+                <p className="mt-3 text-3xl font-black text-[#1f1b00]">{dashboard.time_spent_minutes} min</p>
+              </div>
+            </div>
+          ) : null}
+
+          {dashboard && (dashboard.time_per_concept?.length ?? 0) > 0 ? (
+            <div className="mb-6 rounded-[2rem] bg-white/82 p-6 shadow-[0_18px_36px_rgba(60,53,18,0.12)]">
+              <h4 className="mb-3 font-['Plus_Jakarta_Sans'] text-xl font-black text-[#1f1b00]">Time by module</h4>
+              <ul className="space-y-2 font-['Be_Vietnam_Pro'] text-sm text-[#5b4c2c]">
+                {(dashboard.time_per_concept ?? []).map((row) => (
+                  <li key={row.module_id}>
+                    <span className="font-semibold text-[#1f1b00]">{row.module_title}</span> — {row.minutes} min
+                  </li>
+                ))}
+              </ul>
             </div>
           ) : null}
 
@@ -1063,6 +1084,17 @@ function isUuid(value: string | undefined): value is string {
   return typeof value === "string" && UUID_RE.test(value);
 }
 
+function newQuizRunUuid(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
   const searchParams = useSearchParams();
   const storeUserId = useAuthStore((s) => s.userId);
@@ -1079,6 +1111,8 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
   );
 
   const [analyticsSessionId, setAnalyticsSessionId] = useState<string | null>(null);
+  const [quizRunId, setQuizRunId] = useState<string | null>(null);
+  const lessonOpenedAtRef = useRef<number | null>(null);
   const quizStartedAtRef = useRef<number | null>(null);
   const quizStartedIngestKeyRef = useRef<string | null>(null);
 
@@ -1208,6 +1242,8 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
     setQuizSubmitted(false);
     quizStartedAtRef.current = null;
     quizStartedIngestKeyRef.current = null;
+    setQuizRunId(null);
+    lessonOpenedAtRef.current = null;
   }, [lessonId]);
 
   useEffect(() => {
@@ -1227,12 +1263,18 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
           return;
         }
         setAnalyticsSessionId(res.session_id);
+        lessonOpenedAtRef.current = Date.now();
         void ingestAnalyticsEvent({
           event_type: "lesson_started",
           timestamp: new Date().toISOString(),
           user_id: effectiveUserId,
           session_id: res.session_id,
-          data: { lesson_id: lesson.lesson_id, source: "catalog" },
+          data: {
+            lesson_id: lesson.lesson_id,
+            lesson_title: lesson.title,
+            subject: lesson.quiz_context.subject,
+            grade_level: lesson.quiz_context.grade_level,
+          },
         }).catch(() => {});
       })
       .catch(() => {
@@ -1250,10 +1292,10 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
   }, [lesson?.lesson_id, effectiveUserId, lesson]);
 
   useEffect(() => {
-    if (!quiz || !analyticsSessionId || !effectiveUserId || !isUuid(effectiveUserId) || !lesson) {
+    if (!quiz || !quizRunId || !analyticsSessionId || !effectiveUserId || !isUuid(effectiveUserId) || !lesson) {
       return;
     }
-    const ingestKey = `${lesson.lesson_id}:${quiz.questions.map((q) => q.question_id).join(",")}`;
+    const ingestKey = `${quizRunId}:${lesson.lesson_id}:${quiz.questions.map((q) => q.question_id).join(",")}`;
     if (quizStartedIngestKeyRef.current === ingestKey) {
       return;
     }
@@ -1264,9 +1306,13 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
       timestamp: new Date().toISOString(),
       user_id: effectiveUserId,
       session_id: analyticsSessionId,
-      data: { lesson_id: lesson.lesson_id, question_count: quiz.questions.length },
+      data: {
+        quiz_id: quizRunId,
+        lesson_id: lesson.lesson_id,
+        question_count: quiz.questions.length,
+      },
     }).catch(() => {});
-  }, [quiz, analyticsSessionId, effectiveUserId, lesson]);
+  }, [quiz, quizRunId, analyticsSessionId, effectiveUserId, lesson]);
 
   useEffect(() => {
     if (currentSection >= sections.length && sections.length) {
@@ -1471,7 +1517,10 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
                   aria-label="Generate quiz for this lesson"
                   onClick={async () => {
                     setQuizPending(true);
-                    const generatedQuiz = await generateLessonQuiz(lesson);
+                    const generatedQuiz = await generateLessonQuiz(lesson, {
+                      userId: effectiveUserId && isUuid(effectiveUserId) ? effectiveUserId : undefined,
+                    });
+                    setQuizRunId(newQuizRunUuid());
                     setQuiz(generatedQuiz);
                     setQuizAnswers({});
                     setQuizSubmitted(false);
@@ -1594,18 +1643,29 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
                         ...sessionPayload,
                       });
 
-                      if (analyticsSessionId && effectiveUserId && isUuid(effectiveUserId)) {
+                      if (
+                        analyticsSessionId &&
+                        effectiveUserId &&
+                        isUuid(effectiveUserId) &&
+                        quizRunId &&
+                        isUuid(quizRunId)
+                      ) {
                         const elapsedMs =
                           quizStartedAtRef.current !== null
                             ? Math.max(1, Date.now() - quizStartedAtRef.current)
                             : total * 2000;
                         const perQuestionMs = Math.max(300, Math.floor(elapsedMs / Math.max(total, 1)));
+                        const lessonMs = Math.max(
+                          1,
+                          Date.now() - (lessonOpenedAtRef.current ?? Date.now()),
+                        );
 
                         for (const q of quiz.questions) {
                           const correctOption = q.options.find((opt) => !opt.is_distractor);
                           const isCorrect = !!(
                             correctOption && quizAnswers[q.question_id] === correctOption.option_id
                           );
+                          const chosen = q.options.find((opt) => opt.option_id === quizAnswers[q.question_id]);
                           void ingestAnalyticsEvent({
                             event_type: "question_answered",
                             timestamp: new Date().toISOString(),
@@ -1613,9 +1673,11 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
                             session_id: analyticsSessionId,
                             data: {
                               question_id: q.question_id,
+                              answer: quizAnswers[q.question_id] ?? "",
                               is_correct: isCorrect,
                               response_latency_ms: perQuestionMs,
                               lesson_id: lesson.lesson_id,
+                              misconception_type: chosen?.misconception_type ?? null,
                             },
                           }).catch(() => {});
                         }
@@ -1626,10 +1688,17 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
                           user_id: effectiveUserId,
                           session_id: analyticsSessionId,
                           data: {
+                            quiz_id: quizRunId,
                             score,
                             total_questions: total,
-                            percentage: total > 0 ? (100 * score) / total : 0,
+                            time_spent_ms: elapsedMs,
                             lesson_id: lesson.lesson_id,
+                            difficulty_band:
+                              total > 0 && score / total >= 0.8
+                                ? "hard"
+                                : total > 0 && score / total <= 0.4
+                                  ? "easy"
+                                  : "medium",
                           },
                         }).catch(() => {});
 
@@ -1640,8 +1709,7 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
                           session_id: analyticsSessionId,
                           data: {
                             lesson_id: lesson.lesson_id,
-                            quiz_score: score,
-                            quiz_total: total,
+                            time_spent_ms: lessonMs,
                           },
                         }).catch(() => {});
                       }

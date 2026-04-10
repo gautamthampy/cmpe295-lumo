@@ -82,14 +82,24 @@ class PlannerService:
         # ── 1. Attention signal ──────────────────────────────────────
         attention = self._get_attention_state(student_id, session_id)
         if attention["drift"]:
-            recommendations.append(
-                LearningRecommendation(
-                    action="take_break",
-                    reason="Attention drift detected. A short break will help you refocus.",
-                    priority=0.95,
-                    metadata={"attention_score": attention["score"]},
+            if attention.get("recommended_action") == "recap":
+                recommendations.append(
+                    LearningRecommendation(
+                        action="micro_recap",
+                        reason="Because your attention dipped, a quick recap can help you lock in the key idea before moving on.",
+                        priority=0.95,
+                        metadata={"attention_score": attention["score"]},
+                    )
                 )
-            )
+            else:
+                recommendations.append(
+                    LearningRecommendation(
+                        action="take_break",
+                        reason="Attention drift detected. A short break will help you refocus.",
+                        priority=0.95,
+                        metadata={"attention_score": attention["score"]},
+                    )
+                )
         elif attention["score"] < 0.5:
             recommendations.append(
                 LearningRecommendation(
@@ -158,11 +168,11 @@ class PlannerService:
 
         score = float(row.attention_score)
         sid = str(session_id) if session_id else (str(row.session_id) if row.session_id else "unknown")
-        drift, _ = get_drift_status(
+        drift, recommended_action = get_drift_status(
             user_id=str(student_id),
             session_id=sid,
         )
-        return {"score": score, "drift": drift}
+        return {"score": score, "drift": drift, "recommended_action": recommended_action}
 
     def _get_recent_feedback_count(self, student_id: UUID, event_type: str) -> int:
         """Count feedback events of a given type in the last 30 minutes."""
@@ -170,7 +180,7 @@ class PlannerService:
 
         cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
         count = (
-            self.db.query(func.count(FeedbackLog.id))
+            self.db.query(func.count(FeedbackLog.log_id))
             .filter(
                 FeedbackLog.user_id == str(student_id),
                 FeedbackLog.feedback_type == event_type,

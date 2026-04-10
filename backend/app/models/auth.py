@@ -30,6 +30,17 @@ class ParentUser(Base):
     student_login_codes: Mapped[list[StudentLoginCodeToken]] = relationship(back_populates="parent_user", cascade="all, delete-orphan")
 
 
+class StaffUser(Base):
+    __tablename__ = "staff_users"
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)  # "teacher" | "admin"
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, server_default=func.now())
+
+
 class AuthSession(Base):
     __tablename__ = "auth_sessions"
 
@@ -85,7 +96,8 @@ class Student(Base):
     parent_user: Mapped[ParentUser] = relationship(back_populates="students")
     login_codes: Mapped[list[StudentLoginCodeToken]] = relationship(back_populates="student")
     # Relationship used by content.student_subjects join model.
-    enrolled_subjects = relationship("StudentSubject", back_populates="student", cascade="all, delete-orphan")
+    # Use passive_deletes so deletes don't require loading content.* tables (sqlite test DB).
+    enrolled_subjects = relationship("StudentSubject", back_populates="student", passive_deletes=True)
 
 
 class StudentLoginCodeToken(Base):

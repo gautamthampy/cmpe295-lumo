@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 _gemini_service_instance: Optional["GeminiService"] = None
 
+from app.services.pii_redaction import redact_pii
+
 
 class GeminiService:
     """LLM wrapper for Gemini or Ollama with deterministic fallback."""
@@ -175,6 +177,7 @@ class GeminiService:
     # ------------------------------------------------------------------
     async def _call_model(self, prompt: str) -> str:
         """Call configured LLM provider and return text response."""
+        prompt = redact_pii(prompt)
         if self.provider == "ollama":
             return await self._call_ollama(prompt)
         response = self.model.generate_content(prompt)

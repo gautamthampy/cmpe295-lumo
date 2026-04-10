@@ -295,14 +295,37 @@ def render_lesson(lesson_id: str, db: Session = Depends(get_db)) -> LessonRender
 
 from datetime import datetime, timezone
 from pydantic import BaseModel as _PydanticBaseModel
+from fastapi import Body
+
+from app.models.catalog import CurriculumLesson
+from app.models.learner_mastery import LearnerMasteryScore
 from app.services.gemini_service import get_gemini_service
 from app.schemas.lessons import QuizOption, QuizQuestion, QuizResponse
 
 
 class _QuizGenerateRequest(_PydanticBaseModel):
-    lesson_id: str
+    # lesson_id is provided by the path; body may omit it.
+    lesson_id: str | None = None
     quiz_context: dict | None = None
     misconception_tags: list[str] = []
+    user_id: str | None = None
+    target_difficulty: str | None = None  # easy | medium | hard
+
+
+def _choose_difficulty_band(score: float | None) -> str:
+    """
+    Phase 3 rule (workbook):
+    - ≥80% → harder
+    - ≤40% → easier
+    - else → medium
+    """
+    if score is None:
+        return "medium"
+    if score >= 0.8:
+        return "hard"
+    if score <= 0.4:
+        return "easy"
+    return "medium"
 
 
 def _build_mock_quiz(lesson_id: str, subject: str, grade_level: int, tags: list[str]) -> QuizResponse:
@@ -384,6 +407,7 @@ def _extract_json_array_from_llm_text(raw: str) -> str:
 @router.post("/lessons/{lesson_id}/quiz", response_model=QuizResponse)
 async def generate_quiz(
     lesson_id: str,
+    payload: _QuizGenerateRequest | None = Body(default=None),
     db: Session = Depends(get_db),
 ):
     """
@@ -401,10 +425,47 @@ async def generate_quiz(
     tags = list(lesson.tags or [])
     gemini = get_gemini_service()
 
+    payload_obj = payload or _QuizGenerateRequest(lesson_id=lesson_id)
+
+    # Adaptive difficulty target (Phase 3): infer from mastery if possible.
+    target = (payload_obj.target_difficulty or "").strip().lower() or None
+    if target not in {None, "easy", "medium", "hard"}:
+        target = None
+
+    mastery_score: float | None = None
+    if target is None and payload_obj.user_id:
+        try:
+            user_uuid = UUID(str(payload_obj.user_id))
+            cl = (
+                db.query(CurriculumLesson)
+                .filter(CurriculumLesson.external_id == lesson_id)
+                .first()
+            )
+            if cl is not None:
+                lesson_uuid = UUID(str(cl.id))
+                row = (
+                    db.query(LearnerMasteryScore)
+                    .filter(
+                        LearnerMasteryScore.user_id == user_uuid,
+                        LearnerMasteryScore.lesson_id == lesson_uuid,
+                    )
+                    .first()
+                )
+                if row is not None:
+                    mastery_score = float(row.score)
+        except Exception:
+            mastery_score = None
+
+    difficulty_band = target or _choose_difficulty_band(mastery_score)
+
     if gemini.model:
         prompt = f"""Generate 3 multiple-choice quiz questions for a Grade {subject.grade_level} {subject.name} lesson titled "{lesson.title}".
 
+Difficulty target: {difficulty_band}. Use difficulty values from easy|medium|hard, and ensure at least 2/3 questions match the target.
+
 Misconception tags to probe: {', '.join(tags) if tags else 'general understanding'}
+
+Each question MUST include at least one distractor whose misconception_type is one of the misconception tags above.
 
 Return a JSON array of objects:
 [{{"question_id":"q1","question_text":"...","options":[{{"option_id":"a","option_text":"...","is_distractor":false,"misconception_type":null}},{{"option_id":"b","option_text":"...","is_distractor":true,"misconception_type":"tag"}}],"difficulty":"easy|medium|hard"}}]
@@ -418,6 +479,7 @@ Return ONLY valid JSON — no markdown fences, no explanation before or after th
             if isinstance(questions_data, dict):
                 questions_data = [questions_data]
             questions = [QuizQuestion.model_validate(q) for q in questions_data]
+            # If the model ignores the target, still return what it generated.
             return QuizResponse(
                 quiz_id=f"quiz-{lesson_id}",
                 lesson_id=lesson_id,
@@ -431,7 +493,11 @@ Return ONLY valid JSON — no markdown fences, no explanation before or after th
                 exc,
             )
 
-    return _build_mock_quiz(lesson_id, subject.name, subject.grade_level, tags)
+    quiz = _build_mock_quiz(lesson_id, subject.name, subject.grade_level, tags)
+    # Nudge mock difficulty band to match target.
+    for q in quiz.questions:
+        q.difficulty = "easy" if difficulty_band == "easy" else "hard" if difficulty_band == "hard" else q.difficulty
+    return quiz
 
 
 # ---------------------------------------------------------------------------

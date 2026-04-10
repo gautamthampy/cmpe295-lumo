@@ -21,6 +21,7 @@ import {
   writeJsonCache,
 } from "@/lib/story-studio/server/gemini-cache";
 import { getServerLlmProvider, ollamaGenerateText } from "@/lib/story-studio/server/llm-provider";
+import { redactPii } from "@/lib/story-studio/server/pii-redaction";
 import { validateLessonSpec } from "@/lib/story-studio/validate-lesson-spec";
 
 export const runtime = "nodejs";
@@ -94,7 +95,7 @@ function parseModelJson<T>(rawText: string): T | null {
 
 function buildSceneSpecPrompt(lesson: LessonSpecDraft): string {
   return JSON.stringify({
-    child: lesson.childName,
+    child: redactPii(lesson.childName),
     subject: lesson.subject,
     unit: lesson.unitOrModule,
     concept: lesson.conceptFamily,

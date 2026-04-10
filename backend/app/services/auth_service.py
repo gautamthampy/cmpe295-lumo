@@ -100,6 +100,19 @@ class AuthService:
             payload, self.settings.jwt_secret, algorithm=self.settings.jwt_algorithm
         )
 
+    def create_staff_token(self, staff_id: UUID | str, *, role: Literal["teacher", "admin"]) -> str:
+        expire = datetime.now(timezone.utc) + timedelta(
+            minutes=self.settings.student_token_expire_minutes
+        )
+        payload = {
+            "sub": str(staff_id),
+            "role": role,
+            "exp": expire,
+        }
+        return jwt.encode(
+            payload, self.settings.jwt_secret, algorithm=self.settings.jwt_algorithm
+        )
+
     # ------------------------------------------------------------------
     # Token decoding
     # ------------------------------------------------------------------
@@ -112,7 +125,7 @@ class AuthService:
             algorithms=[self.settings.jwt_algorithm],
         )
 
-    def get_role(self, token: str) -> Literal["parent", "student", "student-selection"]:
+    def get_role(self, token: str) -> Literal["parent", "student", "student-selection", "teacher", "admin"]:
         payload = self.decode_token(token)
         return payload.get("role", "student")
 

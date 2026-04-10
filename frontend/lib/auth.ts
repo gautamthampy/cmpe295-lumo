@@ -11,6 +11,7 @@ export const authRoutes = {
   studentSession: "/auth/student-session",
   subjects: "/auth/subjects",
   parentDashboard: "/auth/me",
+  studentLearningSummary: (studentId: string) => `/auth/students/${studentId}/learning-summary`,
   createStudent: "/auth/students",
   requestStudentLoginCode: "/auth/student-login/request-code",
   verifyStudentLoginCode: "/auth/student-login/verify-code",
