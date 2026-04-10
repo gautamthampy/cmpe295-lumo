@@ -105,7 +105,8 @@ function buildSceneSpecPrompt(lesson: LessonSpecDraft): string {
       returnJsonOnly: true,
       gameFeel: "play_first_discovery",
       noQuizLanguage: true,
-      studentAge: "grade_2",
+      studentAge:
+        lesson.gradeLevel === 1 ? "grade_1" : lesson.gradeLevel === 2 ? "grade_2" : "grade_3",
       outcomePattern: "action_visual_change_fact_unlock",
     },
   });
@@ -118,6 +119,7 @@ function normalizeDraft(
     subject: "ela" | "math" | "science" | "social_studies";
     curriculumCode: string;
     childName: string;
+    gradeLevel: 1 | 2 | 3;
     defaultUnit: string;
     defaultConceptFamily: LessonSpecDraft["conceptFamily"];
     defaultVocabulary: "low" | "medium";
@@ -138,7 +140,7 @@ function normalizeDraft(
   return {
     ...sourceDraft,
     lessonId: sourceDraft.lessonId ?? `live-${params.curriculumCode}-${Date.now()}`,
-    gradeLevel: 2,
+    gradeLevel: params.gradeLevel,
     district: params.district,
     subject: params.subject,
     curriculumCode: params.curriculumCode,
@@ -474,6 +476,7 @@ export async function POST(request: Request) {
         subject: parentInput.subject,
         curriculumCode: parentInput.curriculumCode,
         childName: parentInput.childName,
+        gradeLevel: entry.gradeLevel,
         defaultUnit: entry.title,
         defaultConceptFamily: entry.conceptFamily,
         defaultVocabulary: entry.vocabularyLevel,
