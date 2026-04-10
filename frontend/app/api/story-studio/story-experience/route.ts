@@ -7,6 +7,7 @@ import {
   writeJsonCache,
 } from "@/lib/story-studio/server/gemini-cache";
 import { getServerLlmProvider, ollamaGenerateText } from "@/lib/story-studio/server/llm-provider";
+import { redactPii } from "@/lib/story-studio/server/pii-redaction";
 import {
   STORY_EXPERIENCE_RESPONSE_SCHEMA,
   STORY_PLAN_SCHEMA,
@@ -89,7 +90,7 @@ function buildStoryCacheKey(lesson: LessonSpec) {
     unitOrModule: lesson.unitOrModule,
     conceptFamily: lesson.conceptFamily,
     theme: lesson.theme,
-    childName: lesson.childName,
+    childName: redactPii(lesson.childName),
     mechanicId: lesson.mechanicId,
     storyModel:
       getServerLlmProvider() === "ollama"
@@ -146,7 +147,7 @@ function sanitizeModelJson(raw: string): string {
 
 function buildStoryPlanPrompt(lesson: LessonSpec): string {
   return JSON.stringify({
-    child: lesson.childName,
+    child: redactPii(lesson.childName),
     unit: lesson.unitOrModule,
     concept: lesson.conceptFamily,
     mechanic: lesson.mechanicId,

@@ -1,4 +1,5 @@
 import logging
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from jose import JWTError
@@ -6,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
-from app.models.auth import ParentUser, Student
+from app.models.auth import ParentUser, StaffUser, Student
 from app.models.catalog import CurriculumLesson, CurriculumModule, CurriculumSubject
 from app.schemas.auth import (
     CurriculumLessonResponse,
@@ -35,6 +36,7 @@ from app.schemas.auth import (
     StudentSummaryResponse,
     VerifyEmailRequest,
 )
+from app.services.analytics_dashboard import build_dashboard_payload
 from app.services.auth import (
     consume_student_login_code,
     consume_password_reset_token,
@@ -61,6 +63,54 @@ from app.services.security import hash_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
+
+
+@router.post("/staff/sign-in", response_model=SessionResponse)
+def staff_sign_in(
+    payload: SignInRequest,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> SessionResponse:
+    """
+    Minimal Phase-5 RBAC: staff can authenticate via bearer token (teacher/admin).
+    This does not use session cookies; it returns a JWT access token.
+    """
+    staff = db.query(StaffUser).filter(StaffUser.email == normalize_email(str(payload.email))).first()
+    if staff is None or not verify_password(payload.password, staff.password_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password.")
+    if staff.role not in {"teacher", "admin"}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Staff access denied.")
+
+    auth = get_auth_service()
+    token = auth.create_staff_token(staff.id, role=staff.role)  # type: ignore[arg-type]
+    return SessionResponse(message="Signed in.", authenticated=True, access_token=token, expires_in=settings.student_token_expire_minutes * 60)
+
+
+@router.post("/staff/bootstrap", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
+def staff_bootstrap(
+    email: str = Query(..., min_length=3),
+    password: str = Query(..., min_length=6),
+    role: str = Query("teacher"),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> MessageResponse:
+    """
+    Create a staff user for local development.
+    Only available when debug_auth_tokens is enabled.
+    """
+    if not settings.debug_auth_tokens:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    normalized = normalize_email(email)
+    existing = db.query(StaffUser).filter(StaffUser.email == normalized).first()
+    if existing is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An account with that email already exists.")
+    if role not in {"teacher", "admin"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role.")
+
+    staff = StaffUser(email=normalized, password_hash=hash_password(password), role=role)
+    db.add(staff)
+    db.commit()
+    return MessageResponse(message=f"Staff user created with role={role}.")
 
 
 def set_session_cookie(response: Response, settings: Settings, token: str, remember_me: bool) -> None:
@@ -509,6 +559,22 @@ def select_student_after_code(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found.")
 
     return build_student_auth_response(student, settings)
+
+
+@router.get("/students/{student_id}/learning-summary")
+def read_student_learning_summary(
+    student_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """Parent-only: dashboard metrics (mastery %, time per module) for one learner."""
+    parent_user = get_current_parent_user(request, db, settings)
+    student = db.get(Student, student_id)
+    if student is None or student.parent_user_id != parent_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found.")
+    uid = UUID(str(student.student_id))
+    return build_dashboard_payload(db, uid)
 
 
 @router.post("/students/{student_id}/login-code", response_model=StudentLoginCodeIssueResponse)

@@ -262,7 +262,10 @@ export async function fetchLessonAnalytics(studentId?: string) {
   });
 }
 
-export async function generateLessonQuiz(lesson: LessonRenderPayload) {
+export async function generateLessonQuiz(
+  lesson: LessonRenderPayload,
+  opts?: { userId?: string; targetDifficulty?: "easy" | "medium" | "hard" },
+) {
   try {
     return await authRequest<LessonQuizPayload>(`/lessons/${lesson.lesson_id}/quiz`, {
       method: "POST",
@@ -270,6 +273,8 @@ export async function generateLessonQuiz(lesson: LessonRenderPayload) {
         lesson_id: lesson.lesson_id,
         quiz_context: lesson.quiz_context,
         misconception_tags: lesson.misconception_tags,
+        user_id: opts?.userId,
+        target_difficulty: opts?.targetDifficulty,
       }),
     });
   } catch {
