@@ -1,131 +1,219 @@
-# LUMO: A Multi-agent AI Study Coach
+# LUMO — Learning Understanding through Multi-agent Orchestration
 
-LUMO is an intelligent tutoring system designed for elementary education, combining multi-agent AI architecture with attention-aware learning and mastery-based progression.
+> An AI-powered adaptive tutoring platform for K-8 students, built with a multi-agent architecture that personalises lessons, tracks attention, and provides real-time feedback.
 
-## Project Overview
+[![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?logo=fastapi)](https://fastapi.tiangolo.com)
+[![Next.js](https://img.shields.io/badge/Frontend-Next.js%2015-000?logo=next.js)](https://nextjs.org)
+[![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL-336791?logo=postgresql)](https://www.postgresql.org)
+[![Redis](https://img.shields.io/badge/Cache-Redis-DC382D?logo=redis)](https://redis.io)
+[![Gemini](https://img.shields.io/badge/AI-Google%20Gemini-4285F4?logo=google)](https://ai.google.dev)
 
-LUMO addresses the limitations of traditional one-size-fits-all teaching by providing personalized, adaptive learning experiences through specialized AI agents:
+---
 
-- **Lesson Designer Agent**: Creates contextualized, age-appropriate lessons
-- **Quiz Agent**: Generates adaptive quizzes with trap-based distractors
-- **Feedback Agent**: Provides tiered hints and motivational support
-- **Attention Agent**: Monitors engagement and optimizes learning sessions
+## Table of Contents
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Multi-Agent System](#multi-agent-system)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Getting Started](#getting-started)
+- [API Reference](#api-reference)
+- [Evaluation Framework](#evaluation-framework)
+- [Testing](#testing)
+- [Deployment](#deployment)
+
+---
+
+## Overview
+
+LUMO is an intelligent tutoring system that uses a **multi-agent architecture** to deliver personalised, accessible learning experiences for elementary-school students. The platform addresses three core challenges in digital education:
+
+1. **Adaptive Content Generation** — Lessons are dynamically generated using ZPD, BKT, misconception-aware, and hybrid strategies, tailored to each learner's current mastery level.
+2. **Real-Time Attention Monitoring** — A lightweight attention engine detects drift via response latency, error rate, and idle time, triggering breaks or interactive recaps.
+3. **Closed-Loop Feedback** — Tiered hints (nudge → conceptual → procedural), error explanations, and motivational nudges keep students engaged without revealing answers.
+
+The system is designed for **parent-supervised learning**, where parents create accounts, add student profiles, and can request diagnostic assessments to identify misconceptions.
+
+---
 
 ## Architecture
 
-### Tech Stack
+```
+┌─────────────────────────────────────────────────────────┐
+│                   Next.js Frontend                      │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────┐  │
+│  │ Lessons  │ │Dashboard │ │   Auth   │ │ Analytics │  │
+│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └─────┬─────┘  │
+│       └────────────┴────────────┴──────────────┘        │
+│                         │  API Proxy                    │
+└─────────────────────────┼───────────────────────────────┘
+                          │
+┌─────────────────────────┼───────────────────────────────┐
+│                   FastAPI Backend                        │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────┐  │
+│  │ Planner  │ │ Lesson   │ │ Feedback │ │ Attention │  │
+│  │  Agent   │ │ Designer │ │  Agent   │ │  Engine   │  │
+│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └─────┬─────┘  │
+│       └────────────┴────────────┴──────────────┘        │
+│                         │                               │
+│  ┌──────────────────────┼────────────────────────────┐  │
+│  │              Service Layer                        │  │
+│  │  GeminiService · AuthService · DiagnosticService  │  │
+│  │  SubjectService · NotificationService · Catalog   │  │
+│  └───────────────────────┬───────────────────────────┘  │
+└──────────────────────────┼──────────────────────────────┘
+                           │
+             ┌─────────────┼─────────────┐
+             │ PostgreSQL  │    Redis    │
+             │ (5 schemas) │  (drift)   │
+             └─────────────┴─────────────┘
+```
 
-- **Frontend**: Next.js 15, React 19, TypeScript, Tailwind CSS, MDX
-- **Backend**: FastAPI (Python 3.11+), PostgreSQL, Redis, MinIO
-- **Infrastructure**: Docker Compose, uv (Python), npm
+---
 
-### Components
+## Multi-Agent System
+
+### 1. Planner Agent (`services/planner_service.py`)
+The **orchestrator**. Aggregates signals from attention, feedback, and analytics subsystems to recommend the student's next-best-action (continue, review, break, switch to interactive). The HTTP API is `GET /api/v1/planner/recommend/{student_id}`; the student **Learn** dashboard (`/learn`) loads suggestions for the signed-in learner when their account id is a UUID (same id as in the JWT `sub` claim).
+
+### 2. Lesson Designer Agent (`services/generation/`)
+Generates age-appropriate, accessible lesson content using four pluggable strategies:
+| Strategy | Module | Description |
+|----------|--------|-------------|
+| **ZPD** | `zpd_strategy.py` | Zone of Proximal Development — scaffolds difficulty |
+| **BKT** | `bkt_strategy.py` | Bayesian Knowledge Tracing — probability-based mastery |
+| **Misconception** | `misconception_strategy.py` | Targets specific student misconceptions |
+| **Hybrid** | `hybrid_strategy.py` | Blends ZPD + BKT + misconception signals |
+
+### 3. Feedback & Motivation Agent (`services/feedback_agent.py`)
+Provides three levels of support:
+- **Hints** (Level 1–3): Nudge → Conceptual → Procedural, progressively revealing more detail
+- **Explanations**: Step-by-step breakdowns when a student answers incorrectly
+- **Motivational Nudges**: Encouraging messages triggered when quiz performance drops below 50%
+
+### 4. Attention Engine (`services/attention_engine.py`)
+A lightweight attention-tracking pipeline:
+- Computes an attention score from response latency, error rate, and idle time
+- Detects **attention drift** using a sliding-window approach with Redis state
+- Triggers **break suggestions** or **recap activities** when drift is sustained
+- Records attention peaks by hour-of-day × day-of-week for optimal scheduling
+
+### 5. Diagnostic Agent (`services/diagnostic_service.py`)
+Parent-initiated assessments that probe student misconceptions:
+- Generates probing activities from the misconception taxonomy
+- Scores responses and identifies weak tags
+- Suggests targeted remedial lessons (existing or AI-generated)
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| **Frontend** | Next.js 15, React 19, TypeScript, Tailwind CSS |
+| **Backend** | Python 3.11+, FastAPI, SQLAlchemy, Pydantic v2 |
+| **Database** | PostgreSQL (5 schemas: `iam`, `learner`, `content`, `events`, `catalog`) |
+| **Cache** | Redis (attention drift state, feature windows) |
+| **AI** | Gemini or local Ollama (configurable) |
+| **Auth** | JWT (bcrypt password hashing, PIN-based student login) |
+| **Email** | SMTP with configurable log/smtp delivery modes |
+| **Eval** | Custom rubric-based evaluation pipeline |
+
+---
+
+## Project Structure
 
 ```
-lumo/
-├── backend/                        # FastAPI service
-│   ├── app/schemas/interactive.py  # 10 activity type schemas (Pydantic v2)
-│   ├── app/services/               # mdx_renderer, accessibility_checker, gemini_service
-│   ├── app/api/v1/endpoints/       # lessons, lesson_generator
-│   └── tests/                      # 98 unit tests
-├── frontend/                       # Next.js 15 app
-│   ├── app/lessons/                # /lessons, /lessons/[id], /lessons/editor, /lessons/analytics
-│   ├── components/interactive/     # 10 WCAG 2.1 AA activity components
-│   └── components/lessons/         # LessonViewer, LearningPath, MdxEditor
-├── experimental/                   # SOTA baseline reproduction and simulations
-├── database/                       # PostgreSQL init scripts
-├── contracts/                      # API contracts and event schemas
-└── docs/                           # Architecture diagrams
+cmpe295-lumo/
+├── backend/
+│   ├── app/
+│   │   ├── api/
+│   │   │   ├── routes/              # Primary API routes
+│   │   │   │   ├── auth.py          # Parent/student auth flows
+│   │   │   │   ├── feedback.py      # Hint, explanation, motivation
+│   │   │   │   ├── lessons.py       # Lesson CRUD, rendering, quiz gen
+│   │   │   │   └── planner.py       # Learning path recommendations
+│   │   │   └── v1/endpoints/        # Extended API routes
+│   │   │       ├── analytics.py     # Attention events, metrics, dashboard
+│   │   │       ├── diagnostics.py   # Diagnostic assessment CRUD
+│   │   │       ├── evaluation.py    # Strategy comparison metrics
+│   │   │       └── sessions.py      # Learning session management
+│   │   ├── core/                     # Config, database, dependencies
+│   │   ├── models/                   # SQLAlchemy ORM models
+│   │   ├── schemas/                  # Pydantic request/response schemas
+│   │   ├── services/                 # Business logic layer
+│   │   │   ├── generation/           # Lesson generation strategies
+│   │   │   ├── attention_engine.py   # Attention scoring + drift
+│   │   │   ├── feedback_agent.py     # Feedback & motivation agent
+│   │   │   ├── planner_service.py    # Planner orchestrator
+│   │   │   ├── diagnostic_service.py # Diagnostic assessments
+│   │   │   ├── gemini_service.py     # LLM integration (Gemini)
+│   │   │   └── ...
+│   │   └── constants/                # Event type constants
+│   ├── evaluation/                   # Evaluation framework
+│   │   ├── rubrics.py                # Scoring rubrics
+│   │   └── run_eval.py               # Evaluation runner
+│   ├── migrations/                   # Alembic DB migrations
+│   └── tests/                        # pytest test suite
+├── frontend/
+│   ├── app/                          # Next.js app router pages
+│   │   ├── (auth)/                   # Login, register, student login
+│   │   ├── (parent)/                 # Parent portal (student mgmt)
+│   │   ├── (student)/                # Student learning interface
+│   │   ├── dashboard/                # Attention analytics dashboard
+│   │   ├── lessons/                  # Lesson list, render, analytics
+│   │   └── portal/                   # Parent dashboard portal
+│   ├── components/                   # React components
+│   │   ├── feedback/                 # FeedbackModal
+│   │   ├── lessons/                  # LessonUI (main interactive view)
+│   │   └── ui/                       # Shared UI primitives
+│   ├── lib/                          # API clients & utilities
+│   │   ├── api.ts                    # Base authRequest helper
+│   │   ├── analytics-api.ts          # Analytics endpoints
+│   │   ├── feedback.ts               # Feedback API client
+│   │   ├── lessons.ts                # Lesson/quiz API client
+│   │   └── story-studio/             # Story experience generation
+│   └── public/                       # Static assets
+└── docs/                             # Project workbook & documentation
 ```
 
-### Interactive Activity Types
-
-10 activity types can be embedded anywhere in a lesson's MDX content:
-
-| Category | Types |
-|---|---|
-| Universal | FillInBlank, TrueOrFalse, MultipleChoice, DragToSort, MatchPairs, CategorySort, WordBank |
-| Math | NumberLine, CountingGrid |
-| English/Reading | HighlightText |
-
-Each activity carries a `misconception_tag` that is surfaced in analytics when a student answers incorrectly.
-
-**Usage in MDX:**
-```markdown
-<!-- interactive -->
-{"type":"TrueOrFalse","id":"act-1","instruction":"True or false?",
- "misconception_tag":"fraction-as-two-numbers","difficulty":"standard",
- "data":{"statement":"3/4 means 3 and 4 are separate numbers.","correct":false,
-          "explanation":"3/4 is ONE number — 3 out of 4 equal parts."}}
-<!-- /interactive -->
-```
+---
 
 ## Getting Started
 
 ### Prerequisites
 
-- **Docker & Docker Compose**: For running databases
-- **Python 3.11+**: For backend development
-- **Node.js 18+**: For frontend development
-- **uv**: Python package manager (`pip install uv`)
-- **npm**: Node package manager
+- Python 3.11+
+- Node.js 18+
+- PostgreSQL 14+
+- Redis 7+
+- Optional Gemini API key, or local Ollama runtime
 
-### Environment Setup
-
-#### 1. Clone the Repository
-
-```bash
-git clone <repository-url>
-cd cmpe295-lumo
-```
-
-#### 2. Start Infrastructure Services
-
-```bash
-# Start PostgreSQL, MinIO, and Redis
-docker-compose up -d
-
-# Verify services are running
-docker-compose ps
-```
-
-The following services will be available:
-- **PostgreSQL**: `localhost:5432`
-- **MinIO Console**: `http://localhost:9001` (UI)
-- **MinIO API**: `localhost:9000`
-- **Redis**: `localhost:6379`
-
-Default credentials (development only):
-- Username: `lumo`
-- Password: `lumo_dev_password`
-
-#### 3. Backend Setup
+### Backend Setup
 
 ```bash
 cd backend
 
 # Create virtual environment
-uv venv                           # or: python -m venv .venv
-source .venv/bin/activate         # Windows: .venv\Scripts\activate
+python3.11 -m venv .venv
+source .venv/bin/activate
 
 # Install dependencies
-uv pip install -e .               # or: pip install -r requirements.txt
+pip install -r requirements.txt
 
-# (Optional) Set Gemini API key for real AI generation
-# Without it, a built-in stub template is used automatically
-export GEMINI_API_KEY=your_key_here
+# Configure environment
+cp .env.example .env
+# Edit .env with your database URL, Redis URL, and LLM settings (Gemini or Ollama)
 
-# Seed the database with 5 Grade 3 Math lessons
-python -m app.seed.seed_db
+# Run database migrations
+alembic upgrade head
 
-# Start development server
+# Start the development server
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Backend will be available at: `http://localhost:8000`
-API Documentation: `http://localhost:8000/api/v1/docs`
-
-#### 4. Frontend Setup
+### Frontend Setup
 
 ```bash
 cd frontend
@@ -133,219 +221,157 @@ cd frontend
 # Install dependencies
 npm install
 
-# Create environment file
-echo "NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1" > .env.local
+# Configure environment
+cp .env.example .env.local
+# Set NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
 
-# Start development server
+# Start the development server
 npm run dev
 ```
 
-Frontend will be available at: `http://localhost:3000`
+### Environment Variables
 
-## Database Schema
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DATABASE_URL` | PostgreSQL connection string | `postgresql://lumo:lumo@localhost:5432/lumo` |
+| `REDIS_URL` | Redis connection string | `redis://localhost:6379/0` |
+| `LLM_PROVIDER` | LLM backend: `gemini` or `ollama` | `ollama` |
+| `GEMINI_API_KEY` | Google Gemini API key (when provider is `gemini`) | — |
+| `OLLAMA_BASE_URL` | Local Ollama API URL | `http://localhost:11434` |
+| `OLLAMA_MODEL` | Ollama model name/tag | `llama3.1:8b` |
 
-The database is organized into three schemas:
+**Frontend Story Studio** (Next.js API routes under `/api/story-studio/`): set the same `LLM_PROVIDER`, `OLLAMA_BASE_URL`, and `OLLAMA_MODEL` in `frontend/.env.local` (defaults match local Ollama). Use `LLM_PROVIDER=gemini` and `GEMINI_API_KEY` only when you want Google for story generation, images, or TTS. With Ollama, scene images use placeholders and narration uses browser speech.
+| `JWT_SECRET` | Secret key for JWT token signing | `changeme` |
+| `AUTO_CREATE_TABLES` | Auto-create DB tables on startup | `true` |
+| `ENABLE_GAZE_TELEMETRY` | Enable gaze tracking events | `false` |
+| `MAIL_DELIVERY_MODE` | Email delivery: `log` or `smtp` | `log` |
 
-### 1. Content Schema
-- **lessons**: Lesson metadata and MDX content
-- **quiz_questions**: Quiz questions with distractors
-- **feedback_templates**: Hint and feedback templates
+---
 
-### 2. Events Schema
-- **user_events**: All user interactions (auto-anonymized after 90 days)
-- **sessions**: Session tracking
+## API Reference
 
-### 3. Learner Model Schema
-- **users**: User profiles (minimal PII)
-- **mastery_scores**: Concept mastery tracking
-- **attention_metrics**: Attention and engagement data
+All endpoints are served under `/api/v1`.
 
-## API Contracts
+### Auth (`/api/v1/auth/`)
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/auth/register` | Register a parent account |
+| POST | `/auth/login` | Parent login (returns JWT) |
+| POST | `/auth/students` | Add a student profile |
+| POST | `/auth/students/login` | Student PIN login |
+| GET  | `/auth/students` | List parent's students |
 
-API contracts are defined in `contracts/api_contracts.yaml` (OpenAPI 3.0 spec).
+### Lessons (`/api/v1/lessons/`)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/lessons` | List all lessons (filter by subject, grade) |
+| GET | `/lessons/{id}/render` | Render a lesson with activities |
+| POST | `/lessons/{id}/quiz` | Generate a quiz (LLM or mock) |
+| GET | `/lessons/analytics/summary` | Lesson analytics summary |
+| POST | `/lessons/events` | Log a lesson event |
 
-**Lesson Designer (implemented):**
-- `GET  /api/v1/lessons` — list all lessons (filter by subject/grade)
-- `GET  /api/v1/lessons/{id}` — get lesson by ID
-- `POST /api/v1/lessons` — create lesson (status=draft)
-- `POST /api/v1/lessons/preview` — render MDX→HTML + accessibility score (no DB save)
-- `POST /api/v1/lessons/generate` — AI-generate lesson via Gemini (stub fallback without key)
-- `GET  /api/v1/lessons/{id}/render` — adaptive render + quiz context + next_lesson_id
-- `POST /api/v1/lessons/{id}/publish` — publish (requires WCAG score ≥ 80%)
-- `POST /api/v1/lessons/{id}/revise` — create new version
-- `GET  /api/v1/lessons/analytics/summary` — per-lesson engagement metrics
-- `GET  /api/v1/lessons/accessibility-report` — WCAG 2.1 AA audit of all lessons
+### Feedback (`/api/v1/feedback/`)
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/feedback/hint` | Get a tiered hint (level 1–3) |
+| POST | `/feedback/explanation` | Get an error explanation |
+| POST | `/feedback/motivation` | Get a motivational nudge |
+| POST | `/feedback/re-quiz` | Generate a re-quiz question |
 
-**Other agents (stub endpoints):**
-- `POST /api/v1/quizzes/generate` — adaptive quiz generation (Alshama)
-- `POST /api/v1/feedback/hint` — tiered hint request (Bhavya)
-- `POST /api/v1/analytics/events` — ingest user event (Nivedita)
-- `GET  /api/v1/analytics/mastery/{user_id}` — mastery scores (Nivedita)
+### Analytics (`/api/v1/analytics/`)
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/analytics/events` | Ingest a user event |
+| GET | `/analytics/attention/current/` | Current attention status |
+| GET | `/analytics/attention/{user_id}` | Attention history |
+| GET | `/analytics/attention/peaks/` | Peak attention windows |
+| GET | `/analytics/attention/summary/` | Daily attention averages |
+| GET | `/analytics/dashboard/{user_id}` | User dashboard data |
 
-**Mock (PoC):**
-- `POST /api/v1/mock/generate` — deterministic quiz from misconception tags
-- `POST /api/v1/mock/events` — mock event ingestion
+### Planner (`/api/v1/planner/`)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/planner/recommend/{student_id}` | Get learning recommendations |
 
-## Event Schema
+### Diagnostics (`/api/v1/diagnostics/`)
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/diagnostics/generate` | Generate a diagnostic assessment |
+| GET | `/diagnostics/{id}` | Get assessment details |
+| POST | `/diagnostics/{id}/submit` | Submit student responses |
+| GET | `/diagnostics/results/{student_id}` | Get all diagnostics for a student |
 
-All user interactions conform to `contracts/event_schema.json`.
+### Evaluation (`/api/v1/evaluation/`)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/evaluation/strategy-comparison` | Compare generation strategies |
+| GET | `/evaluation/runs` | List recent generation runs |
 
-Event types:
-- `lesson_started`, `lesson_completed`
-- `quiz_started`, `question_answered`, `quiz_completed`
-- `hint_requested`, `feedback_provided`
-- `attention_drift_detected`, `break_suggested`
-- `re_quiz_triggered`
+### Sessions (`/api/v1/sessions/`)
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/sessions/` | Create a learning session |
+| POST | `/sessions/{id}/end` | End a learning session |
 
-## Privacy & Data Protection
+---
 
-See `contracts/PRIVACY_GUARDRAILS.md` for comprehensive privacy policies.
+## Evaluation Framework
 
-Key principles:
-- **Data Minimization**: Collect only necessary data
-- **Consent**: Explicit opt-in for tracking features
-- **Retention**: 90-day default with auto-anonymization
-- **Transparency**: Clear dashboards showing data collection
-- **No PII in LLM prompts**: Sanitize all external API calls
+The `evaluation/` directory contains a strategy comparison framework:
 
-## Development Workflow
+- **`rubrics.py`** — Defines scoring rubrics (accessibility, engagement, misconception coverage)
+- **`run_eval.py`** — Runs all four generation strategies against the same prompt and compares scores
 
-### Phase 1: Environment and Contracts ✅
-- [x] Docker Compose (PostgreSQL, Redis, MinIO)
-- [x] Database schema, event schema, API contracts
-- [x] FastAPI + Next.js project scaffolding
+Results are persisted to `content.generation_runs` and queryable via the `/evaluation/strategy-comparison` endpoint.
 
-### Phase 2: Baseline ✅
-- [x] MDX renderer + 10-rule WCAG 2.1 AA checker (Gautam)
-- [x] Deterministic quiz generation from misconception tags (Alshama)
-- [x] Hint loop + re-quiz trigger stubs (Bhavya)
-- [x] Event ingestion + mock analytics (Nivedita)
-
-### Phase 3: Vertical Workflow ✅ (Lesson Designer)
-- [x] AI-powered lesson generation via Gemini
-- [x] Adaptive rendering (scaffold/advanced blocks by mastery score)
-- [x] LessonViewer with section progress, prerequisite graph, quiz integration
-- [x] 5 seed lessons with prerequisite chains
-- [x] 71 backend unit tests
-
-### Phase 4: Interactive Content ✅ (Lesson Designer)
-- [x] 10 activity types embedded in MDX (FillInBlank, TrueOrFalse, MultipleChoice,
-      DragToSort, MatchPairs, CategorySort, WordBank, NumberLine, CountingGrid, HighlightText)
-- [x] Sentinel-based MDX rendering — activities become live React components inline
-- [x] Misconception-tagged activities feed analytics on wrong answers
-- [x] Quick-insert toolbar in lesson editor
-- [x] 98 backend unit tests (all passing)
-
-### Upcoming
-- Feedback Agent (Bhavya): adaptive hints by error type
-- Attention Agent (Nivedita): engagement scoring, break scheduler
-- Full mastery data wiring across all agents
+---
 
 ## Testing
 
-### Backend Tests (98 tests)
 ```bash
-cd backend && python -m pytest tests/ -v
-# Or with coverage:
-cd backend && python -m pytest tests/ --cov=app
+cd backend
+source .venv/bin/activate
+
+# Run all tests
+pytest tests/ -v
+
+# Run specific test files
+pytest tests/test_feedback_api.py -v
+pytest tests/test_analytics_api.py -v
+pytest tests/test_attention_peaks.py -v
 ```
 
-### TypeScript Type Check
+---
+
+## Deployment
+
+### Docker (Recommended)
+
 ```bash
-cd frontend && npx tsc --noEmit
+# Build and start all services
+docker-compose up --build
+
+# Services:
+# - Backend:  http://localhost:8000
+# - Frontend: http://localhost:3000
+# - PostgreSQL: localhost:5432
+# - Redis: localhost:6379
 ```
 
-### Run a specific test file
-```bash
-cd backend && python -m pytest tests/test_mdx_renderer.py -v
-cd backend && python -m pytest tests/test_interactive.py -v
-```
+### Manual
 
-## Documentation
+1. Set up PostgreSQL and Redis instances
+2. Run backend with `uvicorn app.main:app --host 0.0.0.0 --port 8000`
+3. Build frontend with `npm run build` and serve with `npm start`
 
-### Technical Diagrams
-
-Comprehensive system diagrams are available in [`docs/DIAGRAMS.md`](docs/DIAGRAMS.md):
-- System architecture (multi-agent AI, service layers)
-- Database entity-relationship diagrams
-- API sequence diagrams (lesson, quiz, attention workflows)
-- Component architecture (backend & frontend)
-- Data flow diagrams (event processing, quiz generation, feedback loops)
-- Deployment architecture (development & production)
-- Privacy and data flow architecture
-
-All diagrams use **Mermaid** syntax and can be viewed directly in GitHub or any Mermaid-compatible viewer.
-
-### Other Documentation
-
-- **API Contracts**: [`docs/api_contracts.yaml`](docs/api_contracts.yaml) - OpenAPI 3.0 specification
-- **Event Schema**: [`docs/event_schema.json`](docs/event_schema.json) - JSON Schema for cross-component events
-- **Privacy Guardrails**: [`docs/PRIVACY_GUARDRAILS.md`](docs/PRIVACY_GUARDRAILS.md) - COPPA, FERPA, GDPR compliance
-- **Setup Guide**: [`docs/SETUP_GUIDE.md`](docs/SETUP_GUIDE.md) - Detailed environment setup
-- **Phase 1 Report**: [`PHASE1_COMPLETION.md`](PHASE1_COMPLETION.md) - Phase 1 completion status
-
-## Code Attribution
-
-All code follows open-source best practices and properly cites external sources. See `ATTRIBUTIONS.md` for detailed citations of:
-- Framework documentation and patterns
-- Third-party library licenses
-- Industry standards and best practices
-- Academic research references
-
-## Contributing
-
-1. Create feature branch: `git checkout -b feature/your-feature`
-2. Follow coding standards (Black for Python, ESLint for TypeScript)
-3. Write tests for new features
-4. Update documentation and attributions
-5. Submit pull request to `dev` branch
-
-## Team Members
-
-- **Gautam Santhanu Thampy**: Lesson Design & Generation
-- **Bhavya Jain**: Feedback & Motivation
-- **Alshama Mony Sheena**: Quiz Generation
-- **Nivedita Nair**: Analytics & Attention
-
-**Advisor**: Bernardo Flores
+---
 
 ## License
 
-[To be determined]
+This project is developed as part of CMPE 295 — Master's Project at San José State University.
 
-## Resources
+---
 
-- Project Schedule: [Monday.com Board](https://sjsu357034.monday.com/boards/18061322265)
-- Documentation: `docs/`
-- API Docs: http://localhost:8000/api/v1/docs (when running)
+## Authors
 
-## Troubleshooting
-
-### Database Connection Issues
-```bash
-# Check if PostgreSQL is running
-docker-compose ps postgres
-
-# View logs
-docker-compose logs postgres
-
-# Restart service
-docker-compose restart postgres
-```
-
-### Port Conflicts
-If ports 5432, 8000, or 3000 are already in use:
-1. Stop conflicting services
-2. Or modify port mappings in `docker-compose.yml` and `.env` files
-
-### MinIO Access Issues
-Access MinIO console at `http://localhost:9001` to:
-- Create buckets
-- Upload content
-- Manage access policies
-
-## Support
-
-For questions or issues:
-- Create GitHub issue
-- Contact team via project communication channels
+Built by the LUMO team — Bernardo Flores and collaborators.

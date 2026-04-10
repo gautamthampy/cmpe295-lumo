@@ -1,29 +1,634 @@
-"""Analytics endpoints — Nivedita's component (Phase 2 stub)."""
-from fastapi import APIRouter
+"""Analytics & Attention endpoints.
+
+This wires the attention engine into the main backend, using:
+- events.user_events for raw interaction telemetry
+- learner.attention_metrics for derived attention history
+"""
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+from typing import List
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
+from sqlalchemy import desc, func
+from sqlalchemy.orm import Session
+
+from app.constants.analytics_events import (
+    GAZE_EVENT_TYPES,
+    MINI_TEST_EVENT_TYPES,
+    PERSIST_ONLY_EVENT_TYPES,
+    SELF_REPORT_EVENT_TYPES,
+)
+from app.core.config import Settings, get_settings, settings
+from app.core.database import get_db
+from app.models.attention import AttentionMetric
+from app.models.catalog import CurriculumLesson
+from app.models.events import UserEvent
+from app.models.learner_mastery import LearnerMasteryScore
+from app.models.session import SessionModel
+from app.schemas.analytics import (
+    AttentionMiniTestCompletedData,
+    AttentionMiniTestStartedData,
+    AttentionSelfReportData,
+    AttentionSnapshot,
+    AttentionSummary,
+    Event,
+    GazeAttentionLikelihoodData,
+)
+from app.services.attention_feedback import record_attention_signal
+from app.services.attention_engine import (
+    AttentionFeatures,
+    build_rationale,
+    compute_attention_score,
+    evaluate_drift,
+    get_drift_status,
+    rationale_from_score,
+    update_features_and_compute,
+)
+from app.services.analytics_dashboard import build_dashboard_payload
+from app.services.attention_peaks import get_attention_peaks_for_user
+from app.services.auth import get_session
+from app.services.auth_service import get_auth_service
+from app.services.learner_mastery import upsert_mastery_from_quiz_completed
+from app.services.mini_test_scoring import mini_test_score_to_action
+from app.services.telemetry_validation import (
+    lesson_completed_follows_lesson_started,
+    lesson_started_precedes_question,
+    quiz_completed_follows_quiz_started,
+    quiz_started_follows_lesson_started,
+)
+from app.schemas.telemetry import (
+    QuestionAnsweredData,
+    QuizCompletedData,
+    validate_persist_only_payload,
+)
 
 router = APIRouter()
 
 
-@router.post("/events")
-async def ingest_event():
-    """Ingest a user event. [Phase 2 - Nivedita]"""
-    return JSONResponse(status_code=501, content={"detail": "Not implemented."})
+def _persist_event(event: Event, db: Session) -> None:
+    """Persist a generic event to events.user_events."""
+    event_ts_utc = event.timestamp.astimezone(timezone.utc)
+    user_event = UserEvent(
+        user_id=event.user_id,
+        session_id=event.session_id,
+        event_type=event.event_type,
+        event_data={
+            "timestamp": event_ts_utc.isoformat(),
+            "data": event.data,
+        },
+    )
+    db.add(user_event)
+
+
+@router.post("/events", status_code=202)
+def ingest_event(event: Event, db: Session = Depends(get_db)):
+    """Ingest a user event and update attention metrics.
+
+    - question_answered: updates attention pipeline and persists to user_events.
+    - attention_mini_test_started / attention_mini_test_completed: validated and persisted to user_events.
+    - Other schema event types: persisted to user_events only (no attention scoring).
+    - Unknown event types: 202 acknowledged, not persisted.
+    """
+    # Mini-test events: validate session, validate payload, persist to user_events.
+    if event.event_type in MINI_TEST_EVENT_TYPES:
+        session_row = db.get(SessionModel, event.session_id)
+        if session_row is None:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Unknown session_id. Create a session before logging events."},
+            )
+        if event.event_type == "attention_mini_test_started":
+            try:
+                AttentionMiniTestStartedData.model_validate(event.data)
+            except Exception:
+                pass  # data is optional; allow empty or extra fields
+        else:
+            try:
+                completed = AttentionMiniTestCompletedData.model_validate(event.data)
+            except Exception as e:
+                return JSONResponse(
+                    status_code=422,
+                    content={"detail": "Invalid mini-test completed data", "error": str(e)},
+                )
+        _persist_event(event, db)
+        if event.event_type == "attention_mini_test_completed":
+            attn_score, recommended = mini_test_score_to_action(completed.score)
+            event_ts_utc = event.timestamp.astimezone(timezone.utc)
+            metric = AttentionMetric(
+                user_id=event.user_id,
+                session_id=event.session_id,
+                lesson_id=None,
+                attention_score=attn_score,
+                avg_response_latency_ms=completed.time_taken_ms,
+                error_rate=None,
+                hour_of_day=event_ts_utc.hour,
+                day_of_week=event_ts_utc.weekday(),
+            )
+            db.add(metric)
+        db.commit()
+        if event.event_type == "attention_mini_test_completed":
+            attn_score, recommended = mini_test_score_to_action(completed.score)
+            return JSONResponse(
+                status_code=202,
+                content={
+                    "detail": "Mini-test event accepted and stored.",
+                    "attention_score": attn_score,
+                    "recommended_action": recommended,
+                },
+            )
+        return JSONResponse(
+            status_code=202,
+            content={"detail": "Mini-test event accepted and stored."},
+        )
+
+    if event.event_type in GAZE_EVENT_TYPES:
+        if not settings.ENABLE_GAZE_TELEMETRY:
+            return JSONResponse(status_code=202, content={"detail": "Gaze telemetry disabled."})
+        session_row = db.get(SessionModel, event.session_id)
+        if session_row is None:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Unknown session_id. Create a session before logging events."},
+            )
+        try:
+            GazeAttentionLikelihoodData.model_validate(event.data)
+        except Exception as e:
+            return JSONResponse(
+                status_code=422,
+                content={"detail": "Invalid gaze_attention_likelihood payload", "error": str(e)},
+            )
+        _persist_event(event, db)
+        db.commit()
+        return JSONResponse(status_code=202, content={"detail": "Gaze telemetry stored."})
+
+    if event.event_type in SELF_REPORT_EVENT_TYPES:
+        session_row = db.get(SessionModel, event.session_id)
+        if session_row is None:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Unknown session_id. Create a session before logging events."},
+            )
+        try:
+            AttentionSelfReportData.model_validate(event.data)
+        except Exception as e:
+            return JSONResponse(
+                status_code=422,
+                content={"detail": "Invalid attention_self_report data", "error": str(e)},
+            )
+        _persist_event(event, db)
+        db.commit()
+        return JSONResponse(status_code=202, content={"detail": "Self-report stored."})
+
+    _STRICT_PERSIST_TYPES = frozenset(
+        {"lesson_started", "lesson_completed", "quiz_started", "quiz_completed"}
+    )
+
+    if event.event_type == "question_answered":
+        try:
+            qa = QuestionAnsweredData.model_validate(event.data)
+        except ValidationError as e:
+            return JSONResponse(
+                status_code=422,
+                content={"detail": "Invalid question_answered payload", "errors": e.errors()},
+            )
+        session_row = db.get(SessionModel, event.session_id)
+        if session_row is None:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Unknown session_id. Create a session before logging events."},
+            )
+        if not lesson_started_precedes_question(db, event.session_id, event.timestamp):
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "detail": "Temporal violation: lesson_started must precede question_answered in this session.",
+                    "code": "temporal_violation",
+                },
+            )
+        # Reconcile validated fields back for downstream attention logic
+        event.data.update(
+            {
+                "question_id": qa.question_id,
+                "answer": qa.answer,
+                "is_correct": qa.is_correct,
+                "response_latency_ms": qa.response_latency_ms,
+            }
+        )
+        if qa.lesson_id is not None:
+            event.data["lesson_id"] = qa.lesson_id
+        if qa.idle_ms is not None:
+            event.data["idle_ms"] = qa.idle_ms
+
+    elif event.event_type in PERSIST_ONLY_EVENT_TYPES:
+        session_row = db.get(SessionModel, event.session_id)
+        if session_row is None:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Unknown session_id. Create a session before logging events."},
+            )
+        # Temporal ordering rules (Phase 3 hardening)
+        if event.event_type == "quiz_started" and not quiz_started_follows_lesson_started(
+            db, event.session_id, event.timestamp
+        ):
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "detail": "Temporal violation: lesson_started must precede quiz_started in this session.",
+                    "code": "temporal_violation",
+                },
+            )
+        if event.event_type == "quiz_completed" and not quiz_completed_follows_quiz_started(
+            db, event.session_id, event.timestamp
+        ):
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "detail": "Temporal violation: quiz_started must precede quiz_completed in this session.",
+                    "code": "temporal_violation",
+                },
+            )
+        if event.event_type == "lesson_completed" and not lesson_completed_follows_lesson_started(
+            db, event.session_id, event.timestamp
+        ):
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "detail": "Temporal violation: lesson_started must precede lesson_completed in this session.",
+                    "code": "temporal_violation",
+                },
+            )
+        validated_quiz: QuizCompletedData | None = None
+        if event.event_type in _STRICT_PERSIST_TYPES:
+            try:
+                validated = validate_persist_only_payload(event.event_type, event.data)
+            except ValidationError as e:
+                return JSONResponse(
+                    status_code=422,
+                    content={"detail": "Invalid telemetry payload", "errors": e.errors()},
+                )
+            if validated is None:
+                return JSONResponse(
+                    status_code=422,
+                    content={"detail": f"Unsupported strict validation for {event.event_type}."},
+                )
+            if event.event_type == "quiz_completed":
+                validated_quiz = validated  # type: ignore[assignment]
+        _persist_event(event, db)
+        if validated_quiz is not None:
+            upsert_mastery_from_quiz_completed(db, event.user_id, validated_quiz)
+        db.commit()
+        return JSONResponse(
+            status_code=202,
+            content={"detail": "Event accepted and stored."},
+        )
+
+    if event.event_type != "question_answered":
+        return JSONResponse(status_code=202, content={"detail": "Event accepted (ignored for attention)."})
+
+    # question_answered — session and temporal checks completed above
+    latency_ms = event.data.get("response_latency_ms")
+    is_correct = event.data.get("is_correct")
+    idle_ms = event.data.get("idle_ms")
+    raw_lesson_id = event.data.get("lesson_id")
+
+    lesson_id: UUID | None = None
+    if raw_lesson_id is not None:
+        try:
+            lesson_id = UUID(str(raw_lesson_id))
+        except (ValueError, TypeError):
+            lesson_id = None
+
+    _persist_event(event, db)
+    event_ts_utc = event.timestamp.astimezone(timezone.utc)
+
+    features: AttentionFeatures = update_features_and_compute(
+        user_id=str(event.user_id),
+        session_id=str(event.session_id),
+        latency_ms=int(latency_ms) if latency_ms is not None else None,
+        is_correct=bool(is_correct) if is_correct is not None else None,
+        idle_ms=int(idle_ms) if idle_ms is not None else None,
+    )
+    score, _details = compute_attention_score(features)
+    rationale = build_rationale(features, score)
+    drift, recommended_action, drift_entered = evaluate_drift(
+        user_id=str(event.user_id),
+        session_id=str(event.session_id),
+        score=score,
+    )
+
+    if drift_entered:
+        action_taken = "break_suggested" if recommended_action == "break" else "recap_triggered"
+        drift_event = Event(
+            event_type="attention_drift_detected",
+            timestamp=event.timestamp,
+            user_id=event.user_id,
+            session_id=event.session_id,
+            data={
+                "attention_score": score,
+                "response_latency_ms": int(latency_ms) if latency_ms is not None else None,
+                "error_rate": float(features.err_norm),
+                "action_taken": action_taken,
+            },
+        )
+        _persist_event(drift_event, db)
+        record_attention_signal(
+            event.user_id,
+            event.session_id,
+            recommended_action,
+            rationale,
+        )
+
+    # Use the event's timestamp (in UTC) for time buckets so analytics can
+    # reason about peak hours and weekdays.
+    hour_of_day = event_ts_utc.hour
+    day_of_week = event_ts_utc.weekday()
+
+    metric = AttentionMetric(
+        user_id=event.user_id,
+        session_id=event.session_id,
+        lesson_id=lesson_id,
+        attention_score=score,
+        avg_response_latency_ms=int(latency_ms) if latency_ms is not None else None,
+        error_rate=features.err_norm,
+        hour_of_day=hour_of_day,
+        day_of_week=day_of_week,
+    )
+    db.add(metric)
+    db.commit()
+
+    return JSONResponse(
+        status_code=202,
+        content={
+            "attention_score": score,
+            "drift": drift,
+            "recommended_action": recommended_action,
+            "rationale": rationale,
+        },
+    )
+
+
+@router.get("/attention/current/")
+def get_current_attention(user_id: UUID, session_id: UUID, db: Session = Depends(get_db)):
+    """Get the most recent attention status for a specific user + session."""
+    row: AttentionMetric | None = (
+        db.query(AttentionMetric)
+        .filter(
+            AttentionMetric.user_id == user_id,
+            AttentionMetric.session_id == session_id,
+        )
+        .order_by(desc(AttentionMetric.recorded_at))
+        .first()
+    )
+
+    if row is None or row.attention_score is None:
+        # No data yet: default to stable attention.
+        score = 1.0
+        drift, recommended_action = False, "continue"
+        rationale = rationale_from_score(score)
+    else:
+        score = float(row.attention_score)
+        drift, recommended_action = get_drift_status(
+            user_id=str(user_id),
+            session_id=str(session_id),
+        )
+        rationale = rationale_from_score(score)
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "user_id": str(user_id),
+            "session_id": str(session_id),
+            "attention_score": score,
+            "drift": drift,
+            "recommended_action": recommended_action,
+            "rationale": rationale,
+        },
+    )
+
+
+@router.get("/attention/{user_id}", response_model=AttentionSummary)
+def get_attention_metrics(user_id: UUID, db: Session = Depends(get_db)):
+    """Get recent attention metrics and current drift status for a user."""
+    rows: List[AttentionMetric] = (
+        db.query(AttentionMetric)
+        .filter(AttentionMetric.user_id == user_id)
+        .order_by(desc(AttentionMetric.recorded_at))
+        .limit(50)
+        .all()
+    )
+
+    snapshots = [
+        AttentionSnapshot(
+            recorded_at=row.recorded_at,
+            session_id=row.session_id,
+            lesson_id=row.lesson_id,
+            attention_score=row.attention_score,
+            avg_response_latency_ms=row.avg_response_latency_ms,
+            error_rate=row.error_rate,
+        )
+        for row in rows
+    ]
+
+    # Use most recent metric (if any) to derive drift view and rationale.
+    if rows:
+        last_session_id = rows[0].session_id
+        last_score = float(rows[0].attention_score) if rows[0].attention_score is not None else 0.0
+        drift, recommended_action = get_drift_status(
+            user_id=str(user_id),
+            session_id=str(last_session_id) if last_session_id is not None else "unknown",
+        )
+    else:
+        drift, recommended_action = False, "continue"
+
+    return AttentionSummary(
+        user_id=user_id,
+        recent=snapshots,
+        drift=drift,
+        recommended_action=recommended_action,
+    )
+
+
+@router.get("/attention/peaks/")
+def get_attention_peaks(
+    user_id: UUID,
+    window_days: int = 28,
+    min_samples: int = 5,
+    top_k: int = 5,
+    db: Session = Depends(get_db),
+):
+    """Get top attention peak windows (hour x weekday) for a user."""
+    peaks = get_attention_peaks_for_user(
+        db=db,
+        user_id=user_id,
+        window_days=window_days,
+        min_samples=min_samples,
+        top_k=top_k,
+    )
+
+    windows = [
+        {
+            "day_of_week": p.day_of_week,
+            "hour_of_day": p.hour_of_day,
+            "score": p.avg_score,
+            "samples": p.samples,
+        }
+        for p in peaks
+    ]
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "user_id": str(user_id),
+            "windows": windows,
+        },
+    )
+
+
+@router.get("/attention/summary/")
+def get_attention_summary(
+    user_id: UUID,
+    range_days: int = 7,
+    db: Session = Depends(get_db),
+):
+    """Get daily average attention scores over a recent window for a user."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=range_days)
+
+    day_col = func.date_trunc("day", AttentionMetric.recorded_at)
+
+    rows = (
+        db.query(
+            day_col.label("day"),
+            func.avg(AttentionMetric.attention_score).label("avg_score"),
+        )
+        .filter(
+            AttentionMetric.user_id == user_id,
+            AttentionMetric.recorded_at >= cutoff,
+            AttentionMetric.attention_score.isnot(None),
+        )
+        .group_by(day_col)
+        .order_by(day_col.asc())
+        .all()
+    )
+
+    daily_avg = [
+        {
+            "date": row.day.date().isoformat(),
+            "score": float(row.avg_score) if row.avg_score is not None else 0.0,
+        }
+        for row in rows
+    ]
+
+    # Simple drift_count heuristic: number of metrics in window with score < 0.4
+    drift_count = (
+        db.query(func.count(AttentionMetric.id))
+        .filter(
+            AttentionMetric.user_id == user_id,
+            AttentionMetric.recorded_at >= cutoff,
+            AttentionMetric.attention_score.isnot(None),
+            AttentionMetric.attention_score < 0.4,
+        )
+        .scalar()
+        or 0
+    )
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "user_id": str(user_id),
+            "range_days": range_days,
+            "daily_avg": daily_avg,
+            "drift_count": int(drift_count),
+        },
+    )
 
 
 @router.get("/dashboard")
-async def get_dashboard():
-    """Get analytics dashboard data. [Phase 2 - Nivedita]"""
-    return JSONResponse(status_code=501, content={"detail": "Not implemented."})
-
-
-@router.get("/attention/{user_id}")
-async def get_attention_metrics(user_id: str):
-    """Get attention metrics for a user. [Phase 2 - Nivedita]"""
-    return JSONResponse(status_code=501, content={"detail": "Not implemented."})
+def get_dashboard():
+    """Deprecated: use GET /analytics/dashboard/{user_id} for dashboard data."""
+    return JSONResponse(
+        status_code=200,
+        content={
+            "detail": "Deprecated. Use GET /api/v1/analytics/dashboard/{user_id} with a user UUID.",
+            "deprecated": True,
+        },
+    )
 
 
 @router.get("/mastery/{user_id}")
-async def get_mastery_scores(user_id: str):
-    """Get mastery scores for a user. [Phase 2 - Nivedita]"""
-    return JSONResponse(status_code=501, content={"detail": "Not implemented."})
+def get_mastery_scores(user_id: UUID, db: Session = Depends(get_db)):
+    """Per-lesson mastery from learner.mastery_scores joined to curriculum lesson titles."""
+    rows = (
+        db.query(LearnerMasteryScore)
+        .filter(LearnerMasteryScore.user_id == user_id)
+        .all()
+    )
+    items = []
+    for ms in rows:
+        lesson = (
+            db.get(CurriculumLesson, str(ms.lesson_id))
+            if ms.lesson_id is not None
+            else None
+        )
+        items.append(
+            {
+                "lesson_id": str(ms.lesson_id) if ms.lesson_id else None,
+                "external_id": lesson.external_id if lesson else None,
+                "lesson_title": lesson.title if lesson else None,
+                "score": float(ms.score),
+                "score_percent": round(float(ms.score) * 100.0, 1),
+                "attempts": int(ms.attempts),
+                "updated_at": ms.updated_at.isoformat() if ms.updated_at else None,
+            }
+        )
+    return JSONResponse(
+        status_code=200,
+        content={
+            "user_id": str(user_id),
+            "lessons": items,
+        },
+    )
+
+
+@router.get("/dashboard/{user_id}")
+def get_dashboard_data(
+    user_id: UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings_obj: Settings = Depends(get_settings),
+):
+    """Dashboard: counts, overall mastery %, time per module, attention summary."""
+    # Phase 5 RBAC gating:
+    # - student bearer: can only access self
+    # - teacher/admin bearer: can access any
+    # - parent session cookie: can access own children only
+    authz_header = request.headers.get("Authorization", "")
+    if authz_header.lower().startswith("bearer "):
+        token = authz_header.split(" ", 1)[1].strip()
+        auth = get_auth_service()
+        payload = auth.decode_token(token)
+        role = payload.get("role")
+        sub = payload.get("sub")
+        if role == "student":
+            if str(sub) != str(user_id):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Student access denied.")
+        elif role in {"teacher", "admin"}:
+            pass
+        else:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+    else:
+        session_token = request.cookies.get(settings_obj.session_cookie_name)
+        if not session_token:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
+        session = get_session(db, session_token)
+        if session is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
+        if not any(str(s.student_id) == str(user_id) for s in session.parent_user.students):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Parent access denied.")
+
+    dashboard = build_dashboard_payload(db, user_id)
+    return JSONResponse(status_code=200, content=dashboard)
+

@@ -67,9 +67,17 @@ MINIO_SECRET_KEY=lumo_dev_password
 
 SECRET_KEY=CHANGE_ME_IN_PRODUCTION
 
-# Google Gemini API (for LLM features)
+# LLM provider selection
+# Options: gemini | ollama
+LLM_PROVIDER=ollama
+
+# Gemini settings (used when LLM_PROVIDER=gemini)
 GEMINI_API_KEY=your-api-key-here
 GEMINI_MODEL=gemini-1.5-pro
+
+# Ollama settings (used when LLM_PROVIDER=ollama)
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=llama3.1:8b
 ```
 
 ## Development
@@ -152,9 +160,9 @@ Schemas:
 
 ## LLM Integration
 
-The backend uses Google Gemini API for LLM-powered features. See [GEMINI_SETUP.md](./GEMINI_SETUP.md) for configuration details.
+Set `LLM_PROVIDER=ollama` with a local [Ollama](https://ollama.com/) runtime (default), or `LLM_PROVIDER=gemini` with `GEMINI_API_KEY` for Google’s API. See [GEMINI_SETUP.md](./GEMINI_SETUP.md) for Gemini-only setup.
 
-Key features powered by Gemini:
+Key features powered by the configured LLM:
 - Quiz question generation with plausible distractors
 - Context-aware hint generation
 - Personalized feedback messages

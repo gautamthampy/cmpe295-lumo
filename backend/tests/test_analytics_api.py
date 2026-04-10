@@ -1,0 +1,1131 @@
+import uuid
+from datetime import datetime, timedelta, timezone
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import text
+
+from app.main import app
+from app.core.database import SessionLocal
+from app.models.attention import AttentionMetric
+from app.models.catalog import CurriculumLesson
+from app.models.events import UserEvent
+from app.models.learner_mastery import LearnerMasteryScore
+from app.services.auth_service import get_auth_service
+
+
+@pytest.fixture
+def client():
+    return TestClient(app)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _ensure_mastery_scores_lesson_fk_dropped():
+    """Allow mastery_scores.lesson_id to reference curriculum_lessons (not content.lessons)."""
+    try:
+        with SessionLocal() as db:
+            db.execute(
+                text(
+                    "ALTER TABLE learner.mastery_scores "
+                    "DROP CONSTRAINT IF EXISTS mastery_scores_lesson_id_fkey"
+                )
+            )
+            db.commit()
+    except Exception:
+        pass
+
+
+def _random_user_id() -> str:
+    return str(uuid.uuid4())
+
+
+def test_create_session_and_log_event_success(client):
+    user_id = _random_user_id()
+
+    # Create a real session
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    assert res.status_code == 200
+    session_id = res.json()["session_id"]
+
+    ls_ts = "2025-10-25T19:15:00Z"
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            "event_type": "lesson_started",
+            "timestamp": ls_ts,
+            "user_id": user_id,
+            "session_id": session_id,
+            "data": {
+                "lesson_id": str(uuid.uuid4()),
+                "lesson_title": "Pytest lesson",
+                "subject": "Math",
+                "grade_level": 3,
+            },
+        },
+    )
+    assert res.status_code == 202
+
+    # Log a question_answered event (must follow lesson_started in session)
+    timestamp = "2025-10-25T19:15:33Z"  # Saturday (5), 19:15 UTC -> hour_of_day = 19
+    event = {
+        "event_type": "question_answered",
+        "timestamp": timestamp,
+        "user_id": user_id,
+        "session_id": session_id,
+        "data": {
+            "question_id": str(uuid.uuid4()),
+            "answer": "a",
+            # Use null lesson_id here so we don't depend on seeded lessons.
+            "lesson_id": None,
+            "response_latency_ms": 900,
+            "is_correct": True,
+        },
+    }
+    res = client.post("/api/v1/analytics/events", json=event)
+    assert res.status_code == 202
+    body = res.json()
+    assert "attention_score" in body
+    assert "drift" in body
+    assert "recommended_action" in body
+    assert body.get("rationale")
+
+    # Confirm a row was written to learner.attention_metrics
+    with SessionLocal() as db:
+        rows = (
+            db.query(AttentionMetric)
+            .filter(AttentionMetric.user_id == uuid.UUID(user_id))
+            .order_by(AttentionMetric.recorded_at.asc())
+            .all()
+        )
+        assert len(rows) >= 1
+        last = rows[-1]
+        assert last.session_id == uuid.UUID(session_id)
+        # Check time bucketing fields derived from the event timestamp (UTC).
+        assert last.hour_of_day == 19
+        # 2025-10-25 is a Saturday -> Python weekday() = 5
+        assert last.day_of_week == 5
+
+        # Confirm a raw event was written to events.user_events
+        event_rows = (
+            db.query(UserEvent)
+            .filter(
+                UserEvent.user_id == uuid.UUID(user_id),
+                UserEvent.session_id == uuid.UUID(session_id),
+                UserEvent.event_type == "question_answered",
+            )
+            .all()
+        )
+        assert len(event_rows) >= 1
+
+
+def test_log_event_unknown_session_400(client):
+    user_id = _random_user_id()
+    bad_session_id = str(uuid.uuid4())
+
+    event = {
+        "event_type": "question_answered",
+        "timestamp": "2025-10-25T19:15:33Z",
+        "user_id": user_id,
+        "session_id": bad_session_id,
+        "data": {
+            "question_id": str(uuid.uuid4()),
+            "answer": "a",
+            "lesson_id": str(uuid.uuid4()),
+            "response_latency_ms": 900,
+            "is_correct": True,
+        },
+    }
+    res = client.post("/api/v1/analytics/events", json=event)
+    assert res.status_code == 400
+    assert "Unknown session_id" in res.json()["detail"]
+
+
+def test_attention_summary_endpoint(client):
+    user_id = _random_user_id()
+
+    # Create session and log two events so we have some history.
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    assert res.status_code == 200
+    session_id = res.json()["session_id"]
+
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            "event_type": "lesson_started",
+            "timestamp": "2025-10-25T19:14:00Z",
+            "user_id": user_id,
+            "session_id": session_id,
+            "data": {
+                "lesson_id": str(uuid.uuid4()),
+                "lesson_title": "Attention summary test",
+                "grade_level": 3,
+            },
+        },
+    )
+    assert res.status_code == 202
+
+    for latency, correct in [(900, True), (4000, False)]:
+        event = {
+            "event_type": "question_answered",
+            "timestamp": "2025-10-25T19:15:33Z",
+            "user_id": user_id,
+            "session_id": session_id,
+            "data": {
+                "question_id": str(uuid.uuid4()),
+                "answer": "opt-a" if correct else "opt-b",
+                "response_latency_ms": latency,
+                "is_correct": correct,
+            },
+        }
+        res = client.post("/api/v1/analytics/events", json=event)
+        assert res.status_code == 202
+
+    res = client.get(f"/api/v1/analytics/attention/{user_id}")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["user_id"] == user_id
+    assert isinstance(body["recent"], list)
+    assert len(body["recent"]) >= 2
+    assert "drift" in body
+    assert "recommended_action" in body
+
+
+def test_current_attention_endpoint_with_history(client):
+    user_id = _random_user_id()
+
+    # Create session and log two events so we have some history.
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    assert res.status_code == 200
+    session_id = res.json()["session_id"]
+
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            "event_type": "lesson_started",
+            "timestamp": "2025-10-25T19:14:00Z",
+            "user_id": user_id,
+            "session_id": session_id,
+            "data": {
+                "lesson_id": str(uuid.uuid4()),
+                "lesson_title": "Current attention test",
+                "grade_level": 3,
+            },
+        },
+    )
+    assert res.status_code == 202
+
+    for latency, correct in [(900, True), (4000, False)]:
+        event = {
+            "event_type": "question_answered",
+            "timestamp": "2025-10-25T19:15:33Z",
+            "user_id": user_id,
+            "session_id": session_id,
+            "data": {
+                "question_id": str(uuid.uuid4()),
+                "answer": "x",
+                # Use null lesson_id here so we don't depend on seeded lessons.
+                "lesson_id": None,
+                "response_latency_ms": latency,
+                "is_correct": correct,
+            },
+        }
+        res = client.post("/api/v1/analytics/events", json=event)
+        assert res.status_code == 202
+
+    res = client.get(
+        f"/api/v1/analytics/attention/current/?user_id={user_id}&session_id={session_id}"
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["user_id"] == user_id
+    assert body["session_id"] == session_id
+    assert "attention_score" in body
+    assert "drift" in body
+    assert "recommended_action" in body
+    assert "rationale" in body
+
+
+def test_current_attention_endpoint_without_history(client):
+    user_id = _random_user_id()
+
+    # Create a session but do not log any attention events.
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    assert res.status_code == 200
+    session_id = res.json()["session_id"]
+
+    res = client.get(
+        f"/api/v1/analytics/attention/current/?user_id={user_id}&session_id={session_id}"
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["user_id"] == user_id
+    assert body["session_id"] == session_id
+    # With no history we default to stable attention.
+    assert body["attention_score"] == 1.0
+    assert body["drift"] is False
+    assert body["recommended_action"] == "continue"
+
+
+def test_ingest_various_event_types_accepted(client):
+    """Ensure /analytics/events accepts the event types defined in event_schema.json."""
+    user_id = _random_user_id()
+
+    # Create a real session for the user
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    assert res.status_code == 200
+    session_id = res.json()["session_id"]
+
+    base = {
+        "timestamp": "2025-10-25T19:15:33Z",
+        "user_id": user_id,
+        "session_id": session_id,
+    }
+
+    events = [
+        {
+            "event_type": "lesson_started",
+            **base,
+            "data": {
+                "lesson_id": str(uuid.uuid4()),
+                "lesson_title": "Fractions 101",
+                "subject": "Math",
+                "grade_level": 3,
+            },
+        },
+        {
+            "event_type": "lesson_completed",
+            **base,
+            "data": {
+                "lesson_id": str(uuid.uuid4()),
+                "time_spent_ms": 120000,
+                "completion_percentage": 100,
+            },
+        },
+        {
+            "event_type": "quiz_started",
+            **base,
+            "data": {
+                "quiz_id": str(uuid.uuid4()),
+                "lesson_id": str(uuid.uuid4()),
+                "question_count": 5,
+            },
+        },
+        {
+            "event_type": "question_answered",
+            **base,
+            "data": {
+                "question_id": str(uuid.uuid4()),
+                "answer": "A",
+                "is_correct": True,
+                "response_latency_ms": 850,
+            },
+        },
+        {
+            "event_type": "quiz_completed",
+            **base,
+            "data": {
+                "quiz_id": str(uuid.uuid4()),
+                "score": 4,
+                "total_questions": 5,
+                "time_spent_ms": 60000,
+                "mastery_achieved": True,
+            },
+        },
+        {
+            "event_type": "hint_requested",
+            **base,
+            "data": {
+                "question_id": str(uuid.uuid4()),
+                "hint_level": 1,
+                "misconception_type": "place_value",
+            },
+        },
+        {
+            "event_type": "feedback_provided",
+            **base,
+            "data": {
+                "question_id": str(uuid.uuid4()),
+                "feedback_type": "hint",
+                "misconception_addressed": "place_value",
+            },
+        },
+        {
+            "event_type": "attention_drift_detected",
+            **base,
+            "data": {
+                "attention_score": 0.3,
+                "response_latency_ms": 4200,
+                "error_rate": 0.5,
+                "action_taken": "break_suggested",
+            },
+        },
+        {
+            "event_type": "break_suggested",
+            **base,
+            "data": {
+                "reason": "attention_drift",
+                "duration_minutes": 3,
+                "accepted": True,
+            },
+        },
+        {
+            "event_type": "re_quiz_triggered",
+            **base,
+            "data": {
+                "original_quiz_id": str(uuid.uuid4()),
+                "trigger_reason": "low_mastery",
+                "misconception_type": "fractions",
+            },
+        },
+        {
+            "event_type": "attention_mini_test_started",
+            **base,
+            "data": {"trigger": "session_start"},
+        },
+        {
+            "event_type": "attention_mini_test_completed",
+            **base,
+            "data": {"score": 0.85, "correct_count": 3, "total_questions": 4, "time_taken_ms": 12000},
+        },
+    ]
+
+    for payload in events:
+        res = client.post("/api/v1/analytics/events", json=payload)
+        assert res.status_code == 202
+
+
+def test_persist_only_schema_events_written_to_user_events(client):
+    """lesson_completed and similar types persist to events.user_events."""
+    user_id = _random_user_id()
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    assert res.status_code == 200
+    session_id = res.json()["session_id"]
+    # Temporal ordering requires lesson_started before lesson_completed.
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            "event_type": "lesson_started",
+            "timestamp": "2025-10-25T19:10:00Z",
+            "user_id": user_id,
+            "session_id": session_id,
+            "data": {"lesson_id": str(uuid.uuid4()), "lesson_title": "Warm up", "grade_level": 3},
+        },
+    )
+    assert res.status_code == 202
+    payload = {
+        "event_type": "lesson_completed",
+        "timestamp": "2025-10-25T19:15:33Z",
+        "user_id": user_id,
+        "session_id": session_id,
+        "data": {
+            "lesson_id": str(uuid.uuid4()),
+            "time_spent_ms": 120000,
+            "completion_percentage": 100,
+        },
+    }
+    res = client.post("/api/v1/analytics/events", json=payload)
+    assert res.status_code == 202
+    assert "stored" in res.json().get("detail", "").lower()
+
+    with SessionLocal() as db:
+        row = (
+            db.query(UserEvent)
+            .filter(
+                UserEvent.user_id == uuid.UUID(user_id),
+                UserEvent.session_id == uuid.UUID(session_id),
+                UserEvent.event_type == "lesson_completed",
+            )
+            .first()
+        )
+        assert row is not None
+        assert row.event_data["data"]["completion_percentage"] == 100
+
+
+def test_unknown_event_type_not_persisted(client):
+    """Unknown event_type returns 202 but does not write user_events."""
+    user_id = _random_user_id()
+    uid = uuid.UUID(user_id)
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    session_id = res.json()["session_id"]
+    with SessionLocal() as db:
+        before = db.query(UserEvent).filter(UserEvent.user_id == uid).count()
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            "event_type": "totally_unknown_event_xyz",
+            "timestamp": "2025-10-25T19:15:33Z",
+            "user_id": user_id,
+            "session_id": session_id,
+            "data": {},
+        },
+    )
+    assert res.status_code == 202
+    assert "ignored" in res.json().get("detail", "").lower()
+    with SessionLocal() as db:
+        after = db.query(UserEvent).filter(UserEvent.user_id == uid).count()
+    assert after == before
+
+
+def test_mini_test_events_persisted(client):
+    """Mini-test events are accepted and stored in events.user_events."""
+    user_id = _random_user_id()
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    assert res.status_code == 200
+    session_id = res.json()["session_id"]
+    base = {
+        "timestamp": "2025-10-25T19:15:33Z",
+        "user_id": user_id,
+        "session_id": session_id,
+    }
+
+    # Started
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            **base,
+            "event_type": "attention_mini_test_started",
+            "data": {"trigger": "drift_detected", "test_id": str(uuid.uuid4())},
+        },
+    )
+    assert res.status_code == 202
+    assert "Mini-test event accepted" in res.json().get("detail", "")
+
+    # Completed
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            **base,
+            "event_type": "attention_mini_test_completed",
+            "data": {"score": 0.7, "correct_count": 2, "total_questions": 3, "time_taken_ms": 8000},
+        },
+    )
+    assert res.status_code == 202
+    assert "Mini-test event accepted" in res.json().get("detail", "")
+
+    with SessionLocal() as db:
+        rows = (
+            db.query(UserEvent)
+            .filter(
+                UserEvent.user_id == uuid.UUID(user_id),
+                UserEvent.session_id == uuid.UUID(session_id),
+                UserEvent.event_type.in_(("attention_mini_test_started", "attention_mini_test_completed")),
+            )
+            .all()
+        )
+        assert len(rows) == 2
+        types = {r.event_type for r in rows}
+        assert types == {"attention_mini_test_started", "attention_mini_test_completed"}
+
+
+def test_mini_test_completed_validation(client):
+    """attention_mini_test_completed requires score in [0, 1]; invalid session returns 400."""
+    user_id = _random_user_id()
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    assert res.status_code == 200
+    session_id = res.json()["session_id"]
+    base = {
+        "timestamp": "2025-10-25T19:15:33Z",
+        "user_id": user_id,
+        "session_id": session_id,
+        "event_type": "attention_mini_test_completed",
+    }
+
+    # Missing score -> 422
+    res = client.post("/api/v1/analytics/events", json={**base, "data": {}})
+    assert res.status_code == 422
+
+    # Score out of range -> 422
+    res = client.post("/api/v1/analytics/events", json={**base, "data": {"score": 1.5}})
+    assert res.status_code == 422
+
+    # Valid score
+    res = client.post("/api/v1/analytics/events", json={**base, "data": {"score": 0.0}})
+    assert res.status_code == 202
+
+    # Unknown session -> 400
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            "timestamp": "2025-10-25T19:15:33Z",
+            "user_id": user_id,
+            "session_id": str(uuid.uuid4()),
+            "event_type": "attention_mini_test_completed",
+            "data": {"score": 0.8},
+        },
+    )
+    assert res.status_code == 400
+    assert "Unknown session_id" in res.json().get("detail", "")
+
+
+def test_attention_peaks_endpoint_basic(client):
+    user_id = _random_user_id()
+    user_uuid = uuid.UUID(user_id)
+    now = uuid.uuid1()  # just to have a stable-ish ordering; actual time not critical here
+
+    with SessionLocal() as db:
+        # Clean any prior metrics for this user.
+        db.query(AttentionMetric).filter(AttentionMetric.user_id == user_uuid).delete()
+        db.commit()
+
+        # Insert synthetic metrics for two windows:
+        rows = [
+            AttentionMetric(
+                user_id=user_uuid,
+                session_id=None,
+                lesson_id=None,
+                attention_score=0.9,
+                avg_response_latency_ms=800,
+                error_rate=0.0,
+                hour_of_day=9,
+                day_of_week=0,  # Monday
+            ),
+            AttentionMetric(
+                user_id=user_uuid,
+                session_id=None,
+                lesson_id=None,
+                attention_score=0.8,
+                avg_response_latency_ms=900,
+                error_rate=0.1,
+                hour_of_day=9,
+                day_of_week=0,  # Monday
+            ),
+            AttentionMetric(
+                user_id=user_uuid,
+                session_id=None,
+                lesson_id=None,
+                attention_score=0.5,
+                avg_response_latency_ms=2000,
+                error_rate=0.3,
+                hour_of_day=18,
+                day_of_week=1,  # Tuesday
+            ),
+        ]
+        db.add_all(rows)
+        db.commit()
+
+    # Use a very low min_samples so that our small synthetic dataset still yields peaks.
+    res = client.get(f"/api/v1/analytics/attention/peaks/?user_id={user_id}&min_samples=1")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["user_id"] == user_id
+    assert isinstance(body["windows"], list)
+    assert len(body["windows"]) >= 2
+
+    top = body["windows"][0]
+    assert top["day_of_week"] == 0
+    assert top["hour_of_day"] == 9
+    assert top["samples"] == 2
+    assert 0.84 < top["score"] < 0.91
+
+
+def test_dashboard_endpoint_basic(client):
+    user_id = _random_user_id()
+    user_uuid = uuid.UUID(user_id)
+    seeded_catalog_lesson = False
+
+    with SessionLocal() as db:
+        # Clean any prior data for this user.
+        db.query(AttentionMetric).filter(AttentionMetric.user_id == user_uuid).delete()
+        db.query(UserEvent).filter(UserEvent.user_id == user_uuid).delete()
+        db.query(LearnerMasteryScore).filter(LearnerMasteryScore.user_id == user_uuid).delete()
+        db.commit()
+
+        cl = db.query(CurriculumLesson).filter(CurriculumLesson.external_id == "MATH_G2_M1_L1").first()
+        seeded_catalog_lesson = cl is not None
+        mastery_lesson_uuid = uuid.UUID(str(cl.id)) if cl else uuid.uuid4()
+
+        # Seed some attention metrics.
+        metrics = [
+            AttentionMetric(
+                user_id=user_uuid,
+                session_id=None,
+                lesson_id=None,
+                attention_score=0.8,
+                avg_response_latency_ms=800,
+                error_rate=0.1,
+                hour_of_day=9,
+                day_of_week=0,
+            ),
+            AttentionMetric(
+                user_id=user_uuid,
+                session_id=None,
+                lesson_id=None,
+                attention_score=0.6,
+                avg_response_latency_ms=1200,
+                error_rate=0.2,
+                hour_of_day=10,
+                day_of_week=1,
+            ),
+        ]
+
+        # Seed some user_events for lessons/quizzes (nested shape matches analytics ingest).
+        events = [
+            UserEvent(
+                user_id=user_uuid,
+                session_id=None,
+                event_type="lesson_completed",
+                event_data={
+                    "timestamp": "2025-06-01T12:00:00+00:00",
+                    "data": {"lesson_id": str(uuid.uuid4()), "time_spent_ms": 600000},
+                },
+            ),
+            UserEvent(
+                user_id=user_uuid,
+                session_id=None,
+                event_type="lesson_completed",
+                event_data={
+                    "timestamp": "2025-06-01T12:00:00+00:00",
+                    "data": {"lesson_id": str(uuid.uuid4()), "time_spent_ms": 300000},
+                },
+            ),
+            UserEvent(
+                user_id=user_uuid,
+                session_id=None,
+                event_type="quiz_completed",
+                event_data={"quiz_id": str(uuid.uuid4()), "score": 4, "total_questions": 5},
+            ),
+        ]
+        if cl is not None:
+            events.append(
+                UserEvent(
+                    user_id=user_uuid,
+                    session_id=None,
+                    event_type="lesson_completed",
+                    event_data={
+                        "timestamp": "2025-06-02T12:00:00+00:00",
+                        "data": {"lesson_id": "MATH_G2_M1_L1", "time_spent_ms": 180000},
+                    },
+                ),
+            )
+
+        mastery_row = LearnerMasteryScore(
+            user_id=user_uuid,
+            lesson_id=mastery_lesson_uuid,
+            score=0.8,
+            attempts=2,
+        )
+
+        db.add_all(metrics + events + [mastery_row])
+        db.commit()
+
+    # RBAC: dashboard is gated; access as student bearer token.
+    auth = get_auth_service()
+    token = auth.create_student_token(user_id, parent_id=str(uuid.uuid4()))
+    res = client.get(
+        f"/api/v1/analytics/dashboard/{user_id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 200
+    body = res.json()
+
+    assert body["user_id"] == user_id
+    assert body["lessons_completed"] >= 2
+    assert body["quizzes_taken"] >= 1
+    assert body["overall_mastery"] == 80.0
+    assert "time_per_concept" in body
+    assert isinstance(body["time_per_concept"], list)
+    if seeded_catalog_lesson:
+        assert body["time_spent_minutes"] >= 3.0
+    assert "attention_summary" in body
+    assert isinstance(body["attention_summary"], dict)
+
+
+def test_attention_summary_endpoint_basic(client):
+    user_id = _random_user_id()
+    user_uuid = uuid.UUID(user_id)
+
+    with SessionLocal() as db:
+        # Clean any prior data for this user.
+        db.query(AttentionMetric).filter(AttentionMetric.user_id == user_uuid).delete()
+        db.commit()
+
+        # Seed attention metrics across two different days with different scores.
+        now = datetime.now(timezone.utc)
+        rows = [
+            AttentionMetric(
+                user_id=user_uuid,
+                session_id=None,
+                lesson_id=None,
+                attention_score=0.8,
+                avg_response_latency_ms=800,
+                error_rate=0.1,
+                recorded_at=now - timedelta(days=1),
+            ),
+            AttentionMetric(
+                user_id=user_uuid,
+                session_id=None,
+                lesson_id=None,
+                attention_score=0.6,
+                avg_response_latency_ms=900,
+                error_rate=0.2,
+                recorded_at=now - timedelta(days=1),
+            ),
+            AttentionMetric(
+                user_id=user_uuid,
+                session_id=None,
+                lesson_id=None,
+                attention_score=0.3,
+                avg_response_latency_ms=1500,
+                error_rate=0.4,
+                recorded_at=now - timedelta(days=2),
+            ),
+        ]
+        db.add_all(rows)
+        db.commit()
+
+    res = client.get(f"/api/v1/analytics/attention/summary/?user_id={user_id}&range_days=7")
+    assert res.status_code == 200
+    body = res.json()
+
+    assert body["user_id"] == user_id
+    assert body["range_days"] == 7
+    assert isinstance(body["daily_avg"], list)
+    # We seeded two distinct days, so expect at least 2 entries.
+    assert len(body["daily_avg"]) >= 2
+    # There should be at least one low-score metric contributing to drift_count.
+    assert body["drift_count"] >= 1
+
+
+def test_self_report_persisted(client):
+    user_id = _random_user_id()
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    session_id = res.json()["session_id"]
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            "event_type": "attention_self_report",
+            "timestamp": "2025-10-25T19:15:33Z",
+            "user_id": user_id,
+            "session_id": session_id,
+            "data": {"focus_level": 0.6, "label": "ok"},
+        },
+    )
+    assert res.status_code == 202
+    assert "Self-report" in res.json().get("detail", "")
+    with SessionLocal() as db:
+        row = (
+            db.query(UserEvent)
+            .filter(
+                UserEvent.user_id == uuid.UUID(user_id),
+                UserEvent.event_type == "attention_self_report",
+            )
+            .first()
+        )
+        assert row is not None
+
+
+def test_gaze_telemetry_disabled_by_default(client, monkeypatch):
+    from unittest.mock import MagicMock
+
+    m = MagicMock()
+    m.ENABLE_GAZE_TELEMETRY = False
+    monkeypatch.setattr("app.api.v1.endpoints.analytics.settings", m)
+    user_id = _random_user_id()
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    session_id = res.json()["session_id"]
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            "event_type": "gaze_attention_likelihood",
+            "timestamp": "2025-10-25T19:15:33Z",
+            "user_id": user_id,
+            "session_id": session_id,
+            "data": {"likelihood": 0.5},
+        },
+    )
+    assert res.status_code == 202
+    assert "disabled" in res.json().get("detail", "").lower()
+
+
+def test_break_accepted_persisted(client):
+    user_id = _random_user_id()
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    session_id = res.json()["session_id"]
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            "event_type": "break_accepted",
+            "timestamp": "2025-10-25T19:15:33Z",
+            "user_id": user_id,
+            "session_id": session_id,
+            "data": {"reason": "user_choice", "duration_minutes": 5},
+        },
+    )
+    assert res.status_code == 202
+    with SessionLocal() as db:
+        row = (
+            db.query(UserEvent)
+            .filter(
+                UserEvent.user_id == uuid.UUID(user_id),
+                UserEvent.event_type == "break_accepted",
+            )
+            .first()
+        )
+        assert row is not None
+
+
+def test_feedback_attention_signal_endpoint(client):
+    uid = str(uuid.uuid4())
+    sid = str(uuid.uuid4())
+    res = client.post(
+        "/api/v1/feedback/attention-signal",
+        json={
+            "user_id": uid,
+            "session_id": sid,
+            "recommended_action": "recap",
+            "rationale": "Low attention score",
+        },
+    )
+    assert res.status_code == 200
+    assert res.json().get("status") == "ok"
+
+
+def test_mini_test_completed_writes_attention_metric(client):
+    user_id = _random_user_id()
+    uid = uuid.UUID(user_id)
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    session_id = res.json()["session_id"]
+    with SessionLocal() as db:
+        db.query(AttentionMetric).filter(AttentionMetric.user_id == uid).delete()
+        db.commit()
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            "event_type": "attention_mini_test_completed",
+            "timestamp": "2025-10-25T19:15:33Z",
+            "user_id": user_id,
+            "session_id": session_id,
+            "data": {"score": 0.9, "time_taken_ms": 5000},
+        },
+    )
+    assert res.status_code == 202
+    body = res.json()
+    assert body.get("attention_score") == 0.9
+    assert body.get("recommended_action") == "continue"
+    with SessionLocal() as db:
+        n = db.query(AttentionMetric).filter(AttentionMetric.user_id == uid).count()
+        assert n >= 1
+
+
+def test_question_answered_missing_answer_returns_422(client):
+    user_id = _random_user_id()
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    session_id = res.json()["session_id"]
+    client.post(
+        "/api/v1/analytics/events",
+        json={
+            "event_type": "lesson_started",
+            "timestamp": "2025-10-25T19:10:00Z",
+            "user_id": user_id,
+            "session_id": session_id,
+            "data": {
+                "lesson_id": str(uuid.uuid4()),
+                "lesson_title": "L",
+                "grade_level": 3,
+            },
+        },
+    )
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            "event_type": "question_answered",
+            "timestamp": "2025-10-25T19:15:33Z",
+            "user_id": user_id,
+            "session_id": session_id,
+            "data": {
+                "question_id": str(uuid.uuid4()),
+                "is_correct": True,
+                "response_latency_ms": 100,
+            },
+        },
+    )
+    assert res.status_code == 422
+
+
+def test_question_answered_without_lesson_started_temporal_violation(client):
+    user_id = _random_user_id()
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    session_id = res.json()["session_id"]
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            "event_type": "question_answered",
+            "timestamp": "2025-10-25T19:15:33Z",
+            "user_id": user_id,
+            "session_id": session_id,
+            "data": {
+                "question_id": str(uuid.uuid4()),
+                "answer": "a",
+                "is_correct": True,
+                "response_latency_ms": 100,
+            },
+        },
+    )
+    assert res.status_code == 400
+    body = res.json()
+    assert body.get("code") == "temporal_violation"
+
+
+def test_quiz_completed_without_quiz_started_temporal_violation(client):
+    user_id = _random_user_id()
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    session_id = res.json()["session_id"]
+    # We do log lesson_started so only quiz_started ordering is tested here.
+    client.post(
+        "/api/v1/analytics/events",
+        json={
+            "event_type": "lesson_started",
+            "timestamp": "2025-10-25T19:10:00Z",
+            "user_id": user_id,
+            "session_id": session_id,
+            "data": {
+                "lesson_id": "MATH_G2_M1_L1",
+                "lesson_title": "L",
+                "grade_level": 2,
+            },
+        },
+    )
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            "event_type": "quiz_completed",
+            "timestamp": "2025-10-25T19:15:33Z",
+            "user_id": user_id,
+            "session_id": session_id,
+            "data": {
+                "quiz_id": str(uuid.uuid4()),
+                "score": 1,
+                "total_questions": 2,
+                "lesson_id": "MATH_G2_M1_L1",
+            },
+        },
+    )
+    assert res.status_code == 400
+    assert res.json().get("code") == "temporal_violation"
+
+
+def test_quiz_completed_upserts_mastery_when_curriculum_seeded(client):
+    with SessionLocal() as db:
+        cl = db.query(CurriculumLesson).filter(CurriculumLesson.external_id == "MATH_G2_M1_L1").first()
+        if cl is None:
+            pytest.skip("Curriculum lesson MATH_G2_M1_L1 not in database")
+
+    user_id = _random_user_id()
+    uid = uuid.UUID(user_id)
+    res = client.post(
+        "/api/v1/sessions/",
+        json={"user_id": user_id, "device_type": "web", "user_agent": "pytest"},
+    )
+    session_id = res.json()["session_id"]
+
+    with SessionLocal() as db:
+        db.query(LearnerMasteryScore).filter(LearnerMasteryScore.user_id == uid).delete()
+        db.commit()
+
+    qid = str(uuid.uuid4())
+    # Temporal ordering requires lesson_started and quiz_started before quiz_completed.
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            "event_type": "lesson_started",
+            "timestamp": "2025-10-25T19:10:00Z",
+            "user_id": user_id,
+            "session_id": session_id,
+            "data": {
+                "lesson_id": "MATH_G2_M1_L1",
+                "lesson_title": "Seeded lesson",
+                "grade_level": 2,
+            },
+        },
+    )
+    assert res.status_code == 202
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            "event_type": "quiz_started",
+            "timestamp": "2025-10-25T19:15:00Z",
+            "user_id": user_id,
+            "session_id": session_id,
+            "data": {
+                "quiz_id": str(uuid.uuid4()),
+                "lesson_id": "MATH_G2_M1_L1",
+                "question_count": 4,
+            },
+        },
+    )
+    assert res.status_code == 202
+    res = client.post(
+        "/api/v1/analytics/events",
+        json={
+            "event_type": "quiz_completed",
+            "timestamp": "2025-10-25T19:20:00Z",
+            "user_id": user_id,
+            "session_id": session_id,
+            "data": {
+                "quiz_id": qid,
+                "score": 2,
+                "total_questions": 4,
+                "lesson_id": "MATH_G2_M1_L1",
+            },
+        },
+    )
+    assert res.status_code == 202
+
+    with SessionLocal() as db:
+        row = (
+            db.query(LearnerMasteryScore)
+            .filter(LearnerMasteryScore.user_id == uid)
+            .first()
+        )
+        assert row is not None
+        assert abs(float(row.score) - 0.5) < 1e-6
+        assert row.attempts == 1
+
