@@ -32,6 +32,19 @@ class ReQuizRequest(BaseModel):
     user_id: str
 
 
+class AttentionSignalRequest(BaseModel):
+    """Attention engine recommends recap/break/continue to Feedback/Planner."""
+
+    user_id: str = Field(..., description="Learner user UUID")
+    session_id: str = Field(..., description="Learning session UUID")
+    recommended_action: str = Field(..., description="continue | recap | break")
+    rationale: str = Field(default="", description="Short explanation for logs/UX")
+
+
+class AttentionSignalResponse(BaseModel):
+    status: str = "ok"
+
+
 # ── Response Schemas ─────────────────────────────────────────────────
 
 class HintResponse(BaseModel):

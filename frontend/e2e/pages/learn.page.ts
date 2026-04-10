@@ -13,7 +13,7 @@ export class LearnPage {
   }
 
   tagline() {
-    return this.page.getByText(/what do you want to learn today/i);
+    return this.page.getByText(/here are your grade|what do you want to learn today/i);
   }
 
   subjectsHeading() {
@@ -25,7 +25,11 @@ export class LearnPage {
   }
 
   lessonsHeading() {
-    return this.page.getByRole('heading', { name: /ready to explore|no lessons yet/i });
+    return this.page.getByRole('heading', { name: /ready to explore|adventure setup/i });
+  }
+
+  emptyLessonsHeading() {
+    return this.page.getByRole('heading', { name: /no lessons yet/i });
   }
 
   lessonLinks() {

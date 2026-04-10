@@ -2,7 +2,8 @@
 Gemini LLM Service for LUMO.
 
 Provides hint generation and feedback generation using Google's Gemini API.
-Falls back to deterministic mocks when GEMINI_API_KEY is not set.
+Can also route requests to a local Ollama model.
+Falls back to deterministic mocks when configured provider is unavailable.
 """
 from __future__ import annotations
 
@@ -11,18 +12,30 @@ import logging
 import os
 from typing import Any, Dict, Optional
 
+import httpx
+
 logger = logging.getLogger(__name__)
 
 _gemini_service_instance: Optional["GeminiService"] = None
 
 
 class GeminiService:
-    """Wrapper around Google Generative AI SDK for hint and feedback generation."""
+    """LLM wrapper for Gemini or Ollama with deterministic fallback."""
 
     def __init__(self) -> None:
+        self.provider = os.getenv("LLM_PROVIDER", "gemini").strip().lower()
         self.api_key = os.getenv("GEMINI_API_KEY", "")
         self.model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+        self.ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+        self.ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
         self.model: Any = None
+
+        if self.provider == "ollama":
+            # We intentionally do not probe connectivity at init to avoid startup hard-fail.
+            # Generation calls will fail over to deterministic mocks when Ollama is unreachable.
+            self.model = "ollama"
+            logger.info("GeminiService configured for Ollama model %s at %s", self.ollama_model, self.ollama_base_url)
+            return
 
         if self.api_key:
             try:
@@ -161,9 +174,34 @@ class GeminiService:
     # Internal helpers
     # ------------------------------------------------------------------
     async def _call_model(self, prompt: str) -> str:
-        """Call the Gemini model and return the text response."""
+        """Call configured LLM provider and return text response."""
+        if self.provider == "ollama":
+            return await self._call_ollama(prompt)
         response = self.model.generate_content(prompt)
         return response.text.strip()
+
+    async def _call_ollama(self, prompt: str) -> str:
+        payload = {
+            "model": self.ollama_model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": 0.2,
+            },
+        }
+        url = f"{self.ollama_base_url}/api/generate"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, json=payload)
+            resp.raise_for_status()
+            body = resp.json()
+            text = (body.get("response") or "").strip()
+            if not text:
+                raise ValueError("Empty response from Ollama generate API")
+            return text
+
+    async def _generate_content(self, prompt: str) -> str:
+        """Compatibility alias used by lesson quiz generation route."""
+        return await self._call_model(prompt)
 
     @staticmethod
     def _mock_hint(level: int) -> str:

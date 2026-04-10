@@ -8,6 +8,7 @@ import { Suspense, useEffect, useState } from "react";
 import { GeneratedMissionCallout } from "@/components/story-studio/generated-mission-callout";
 import { authRequest, authRoutes, type SubjectCatalogItem } from "@/lib/auth";
 import { type LessonSummary, PLAYFUL_FALLBACK_LESSONS, fetchLessonSummaries, filterLessonsBySubject } from "@/lib/lessons";
+import { type PlannerRecommendResponse, fetchPlannerRecommendations } from "@/lib/planner";
 import { useAuthStore } from "@/lib/store/auth";
 
 const DEFAULT_SUBJECTS: SubjectCatalogItem[] = [
@@ -102,6 +103,7 @@ function StudentLearnPageContent() {
   const searchParams = useSearchParams();
   const displayName = useAuthStore((state) => state.displayName);
   const gradeLevel = useAuthStore((state) => state.gradeLevel);
+  const userId = useAuthStore((state) => state.userId);
   const role = useAuthStore((state) => state.role);
   const logout = useAuthStore((state) => state.logout);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -114,6 +116,7 @@ function StudentLearnPageContent() {
   const [lessons, setLessons] = useState<LessonSummary[]>(PLAYFUL_FALLBACK_LESSONS);
   const [loadingLessons, setLoadingLessons] = useState(true);
   const [lessonsError, setLessonsError] = useState<string | null>(null);
+  const [plannerRecs, setPlannerRecs] = useState<PlannerRecommendResponse | null>(null);
   const currentStudentPath = searchParams.toString() ? `/learn?${searchParams.toString()}` : "/learn";
 
   function redirectToStudentLogin(nextPath: string) {
@@ -252,6 +255,29 @@ function StudentLearnPageContent() {
     };
   }, [isAuthenticated, ready, role]);
 
+  useEffect(() => {
+    if (!ready || role !== "student" || !isAuthenticated() || !userId) {
+      return;
+    }
+
+    let cancelled = false;
+    fetchPlannerRecommendations(userId, { limit: 3 })
+      .then((result) => {
+        if (!cancelled) {
+          setPlannerRecs(result);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPlannerRecs(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, ready, role, userId]);
+
   if (!ready) {
     return (
       <main className="min-h-screen bg-[linear-gradient(135deg,#fffadf_0%,#ffdeac_52%,#cae6ff_100%)] px-6 py-12">
@@ -313,6 +339,31 @@ function StudentLearnPageContent() {
             </div>
           </div>
         </section>
+
+        {plannerRecs?.recommendations?.length ? (
+          <section
+            aria-label="Learning coach suggestions"
+            className="rounded-[2rem] border border-[#e8ecf4] bg-white/92 p-8 shadow-[0_20px_60px_-28px_rgba(19,34,56,0.15)] backdrop-blur-sm"
+          >
+            <p className="font-['Plus_Jakarta_Sans'] text-xs font-bold uppercase tracking-[0.28em] text-[#6a6f7d]">Coach suggestions</p>
+            <h2 className="mt-2 font-['Plus_Jakarta_Sans'] text-2xl font-extrabold tracking-[-0.04em] text-[#132238]">What to try next</h2>
+            <p className="mt-2 font-body text-sm leading-6 text-[#516071]">
+              Pulled from your attention, feedback, and progress signals on the server.
+            </p>
+            <ol className="mt-5 space-y-4">
+              {plannerRecs.recommendations.map((rec, index) => (
+                <li
+                  key={`${rec.action}-${index}`}
+                  className="rounded-[1.25rem] bg-[#f6f8fc] px-5 py-4 font-body text-sm leading-6 text-[#304255]"
+                >
+                  <span className="font-['Plus_Jakarta_Sans'] font-bold text-[#132238]">{rec.action.replaceAll("_", " ")}</span>
+                  <span className="mx-2 text-[#9aa3b2]">·</span>
+                  {rec.reason}
+                </li>
+              ))}
+            </ol>
+          </section>
+        ) : null}
 
         {subjectsError ? (
           <div role="alert" className="rounded-[1.5rem] bg-[#fff4cf] px-5 py-4 font-body text-sm leading-6 text-[#7e5700] shadow-[0_18px_50px_-30px_rgba(126,87,0,0.35)]">

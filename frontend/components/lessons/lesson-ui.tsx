@@ -4,7 +4,7 @@ import { Bell, BookOpen, ChevronLeft, ChevronRight, CircleUserRound, Grid2x2, He
 import { clsx } from "clsx";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { FeedbackModal } from "@/components/feedback/FeedbackModal";
 import { GeneratedMissionCallout } from "@/components/story-studio/generated-mission-callout";
@@ -14,8 +14,11 @@ import SelfReportPanel from "@/components/attention/SelfReportPanel";
 import {
   type AttentionDailySummary,
   type DashboardResponse,
+  createLearningSession,
+  endLearningSession,
   fetchAttentionSummary,
   fetchDashboard,
+  ingestAnalyticsEvent,
 } from "@/lib/analytics-api";
 import {
   type LessonActivity,
@@ -35,6 +38,7 @@ import {
   getFallbackLessonRender,
   logLessonEvent,
 } from "@/lib/lessons";
+import { useAuthStore } from "@/lib/store/auth";
 
 type NavSection = "learn" | "library" | "analytics";
 
@@ -810,7 +814,9 @@ export function LessonsLibraryExperience() {
 
 export function LessonsAnalyticsExperience() {
   const searchParams = useSearchParams();
-  const studentId = searchParams.get("student_id") ?? undefined;
+  const queryStudentId = searchParams.get("student_id") ?? undefined;
+  const authUserId = useAuthStore((s) => s.userId);
+  const studentId = queryStudentId ?? authUserId ?? undefined;
   const [summary, setSummary] = useState<LessonAnalyticsSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1051,7 +1057,31 @@ function buildQuizScore(quiz: LessonQuizPayload, answers: Record<string, string>
   return correct;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isUuid(value: string | undefined): value is string {
+  return typeof value === "string" && UUID_RE.test(value);
+}
+
 export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
+  const searchParams = useSearchParams();
+  const storeUserId = useAuthStore((s) => s.userId);
+  const queryStudentId = searchParams.get("student_id");
+  const effectiveUserId = queryStudentId ?? storeUserId ?? undefined;
+  const logWithUser = useCallback(
+    (body: Record<string, unknown>) => {
+      void logLessonEvent({
+        ...body,
+        ...(effectiveUserId ? { user_id: effectiveUserId } : {}),
+      });
+    },
+    [effectiveUserId],
+  );
+
+  const [analyticsSessionId, setAnalyticsSessionId] = useState<string | null>(null);
+  const quizStartedAtRef = useRef<number | null>(null);
+  const quizStartedIngestKeyRef = useRef<string | null>(null);
+
   const [lesson, setLesson] = useState<LessonRenderPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1083,6 +1113,9 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
     setFeedbackModalOpen(true);
   }, []);
 
+  const feedbackUserId = effectiveUserId && isUuid(effectiveUserId) ? effectiveUserId : "student";
+  const feedbackSessionId = analyticsSessionId ?? "session";
+
   const handleHintRequest = useCallback(async (questionId: string, questionText: string) => {
     const currentLevel = hintLevels[questionId] ?? 1;
     if (currentLevel > 3) return;
@@ -1090,14 +1123,14 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
     const result = await requestHint({
       question_id: questionId,
       question_text: questionText,
-      user_id: "student",
-      session_id: "session",
+      user_id: feedbackUserId,
+      session_id: feedbackSessionId,
       hint_level: currentLevel,
     });
     setHintLevels((prev) => ({ ...prev, [questionId]: Math.min(currentLevel + 1, 4) }));
     showFeedback(`Hint (Level ${currentLevel})`, result.hint_text, { hintLevel: currentLevel });
     setHintPending(null);
-  }, [hintLevels, showFeedback]);
+  }, [hintLevels, showFeedback, feedbackUserId, feedbackSessionId]);
 
   const handleExplanationRequest = useCallback(async (questionId: string, questionText: string, userAnswer: string, correctAnswer: string, misconceptionType?: string | null) => {
     setExplanationPending(questionId);
@@ -1106,23 +1139,23 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
       question_text: questionText,
       user_answer: userAnswer,
       correct_answer: correctAnswer,
-      user_id: "student",
-      session_id: "session",
+      user_id: feedbackUserId,
+      session_id: feedbackSessionId,
       misconception_type: misconceptionType,
     });
     showFeedback("Let's review this question", `${result.explanation}\n\n${result.motivational_message}`);
     setExplanationPending(null);
-  }, [showFeedback]);
+  }, [showFeedback, feedbackUserId, feedbackSessionId]);
 
   const handleMotivationNudge = useCallback(async (errorCount: number, subject?: string) => {
     const result = await requestMotivation({
-      user_id: "student",
-      session_id: "session",
+      user_id: feedbackUserId,
+      session_id: feedbackSessionId,
       error_count: errorCount,
       question_context: subject,
     });
     showFeedback("Keep Going! 🌟", result.message, { isMotivation: true });
-  }, [showFeedback]);
+  }, [showFeedback, feedbackUserId, feedbackSessionId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1173,7 +1206,67 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
     setQuiz(null);
     setQuizAnswers({});
     setQuizSubmitted(false);
+    quizStartedAtRef.current = null;
+    quizStartedIngestKeyRef.current = null;
   }, [lessonId]);
+
+  useEffect(() => {
+    if (!lesson || !effectiveUserId || !isUuid(effectiveUserId)) {
+      setAnalyticsSessionId(null);
+      return;
+    }
+
+    let cancelled = false;
+    const createdSessionIds: string[] = [];
+
+    createLearningSession(effectiveUserId)
+      .then((res) => {
+        createdSessionIds.push(res.session_id);
+        if (cancelled) {
+          void endLearningSession(res.session_id).catch(() => {});
+          return;
+        }
+        setAnalyticsSessionId(res.session_id);
+        void ingestAnalyticsEvent({
+          event_type: "lesson_started",
+          timestamp: new Date().toISOString(),
+          user_id: effectiveUserId,
+          session_id: res.session_id,
+          data: { lesson_id: lesson.lesson_id, source: "catalog" },
+        }).catch(() => {});
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAnalyticsSessionId(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      for (const sid of createdSessionIds) {
+        void endLearningSession(sid).catch(() => {});
+      }
+    };
+  }, [lesson?.lesson_id, effectiveUserId, lesson]);
+
+  useEffect(() => {
+    if (!quiz || !analyticsSessionId || !effectiveUserId || !isUuid(effectiveUserId) || !lesson) {
+      return;
+    }
+    const ingestKey = `${lesson.lesson_id}:${quiz.questions.map((q) => q.question_id).join(",")}`;
+    if (quizStartedIngestKeyRef.current === ingestKey) {
+      return;
+    }
+    quizStartedIngestKeyRef.current = ingestKey;
+    quizStartedAtRef.current = Date.now();
+    void ingestAnalyticsEvent({
+      event_type: "quiz_started",
+      timestamp: new Date().toISOString(),
+      user_id: effectiveUserId,
+      session_id: analyticsSessionId,
+      data: { lesson_id: lesson.lesson_id, question_count: quiz.questions.length },
+    }).catch(() => {});
+  }, [quiz, analyticsSessionId, effectiveUserId, lesson]);
 
   useEffect(() => {
     if (currentSection >= sections.length && sections.length) {
@@ -1211,12 +1304,12 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
       return;
     }
 
-    void logLessonEvent({
+    logWithUser({
       event: "section_view",
       lesson_id: lesson.lesson_id,
       section: sections[currentSection].title,
     });
-  }, [currentSection, lesson, sections]);
+  }, [currentSection, lesson, sections, logWithUser]);
 
   const fontClass = fontSize === "A" ? "text-base" : fontSize === "A+" ? "text-lg" : "text-xl";
 
@@ -1471,10 +1564,89 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
                     disabled={!answeredAllQuestions || quizSubmitted}
                     onClick={() => {
                       setQuizSubmitted(true);
-                      void logLessonEvent({ event: "quiz_submit", lesson_id: lesson.lesson_id, answers: quizAnswers });
-                      // Check score and trigger motivational nudge for low scores
                       const score = buildQuizScore(quiz, quizAnswers);
                       const total = quiz.questions.length;
+                      const sessionPayload =
+                        analyticsSessionId && isUuid(effectiveUserId)
+                          ? { session_id: analyticsSessionId }
+                          : {};
+
+                      logWithUser({
+                        event: "quiz_submit",
+                        lesson_id: lesson.lesson_id,
+                        answers: quizAnswers,
+                        quiz_score: score,
+                        quiz_total: total,
+                        ...sessionPayload,
+                      });
+                      logWithUser({
+                        event: "quiz_completed",
+                        lesson_id: lesson.lesson_id,
+                        quiz_score: score,
+                        quiz_total: total,
+                        ...sessionPayload,
+                      });
+                      logWithUser({
+                        event: "lesson_completed",
+                        lesson_id: lesson.lesson_id,
+                        quiz_score: score,
+                        quiz_total: total,
+                        ...sessionPayload,
+                      });
+
+                      if (analyticsSessionId && effectiveUserId && isUuid(effectiveUserId)) {
+                        const elapsedMs =
+                          quizStartedAtRef.current !== null
+                            ? Math.max(1, Date.now() - quizStartedAtRef.current)
+                            : total * 2000;
+                        const perQuestionMs = Math.max(300, Math.floor(elapsedMs / Math.max(total, 1)));
+
+                        for (const q of quiz.questions) {
+                          const correctOption = q.options.find((opt) => !opt.is_distractor);
+                          const isCorrect = !!(
+                            correctOption && quizAnswers[q.question_id] === correctOption.option_id
+                          );
+                          void ingestAnalyticsEvent({
+                            event_type: "question_answered",
+                            timestamp: new Date().toISOString(),
+                            user_id: effectiveUserId,
+                            session_id: analyticsSessionId,
+                            data: {
+                              question_id: q.question_id,
+                              is_correct: isCorrect,
+                              response_latency_ms: perQuestionMs,
+                              lesson_id: lesson.lesson_id,
+                            },
+                          }).catch(() => {});
+                        }
+
+                        void ingestAnalyticsEvent({
+                          event_type: "quiz_completed",
+                          timestamp: new Date().toISOString(),
+                          user_id: effectiveUserId,
+                          session_id: analyticsSessionId,
+                          data: {
+                            score,
+                            total_questions: total,
+                            percentage: total > 0 ? (100 * score) / total : 0,
+                            lesson_id: lesson.lesson_id,
+                          },
+                        }).catch(() => {});
+
+                        void ingestAnalyticsEvent({
+                          event_type: "lesson_completed",
+                          timestamp: new Date().toISOString(),
+                          user_id: effectiveUserId,
+                          session_id: analyticsSessionId,
+                          data: {
+                            lesson_id: lesson.lesson_id,
+                            quiz_score: score,
+                            quiz_total: total,
+                          },
+                        }).catch(() => {});
+                      }
+
+                      // Check score and trigger motivational nudge for low scores
                       if (total > 0 && score / total < 0.5) {
                         void handleMotivationNudge(total - score, lesson.quiz_context.subject);
                       }

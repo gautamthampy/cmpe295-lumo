@@ -6,6 +6,7 @@ import {
   withInFlightDedup,
   writeJsonCache,
 } from "@/lib/story-studio/server/gemini-cache";
+import { getServerLlmProvider, ollamaGenerateText } from "@/lib/story-studio/server/llm-provider";
 import {
   STORY_EXPERIENCE_RESPONSE_SCHEMA,
   STORY_PLAN_SCHEMA,
@@ -80,7 +81,8 @@ async function getGeminiErrorDetail(response: Response): Promise<string | null> 
 
 function buildStoryCacheKey(lesson: LessonSpec) {
   return JSON.stringify({
-    version: "story-experience-v1",
+    version: "story-experience-v2",
+    llmProvider: getServerLlmProvider(),
     district: lesson.district,
     subject: lesson.subject,
     curriculumCode: lesson.curriculumCode,
@@ -89,9 +91,12 @@ function buildStoryCacheKey(lesson: LessonSpec) {
     theme: lesson.theme,
     childName: lesson.childName,
     mechanicId: lesson.mechanicId,
-    storyModel: getStoryPlannerModel(),
+    storyModel:
+      getServerLlmProvider() === "ollama"
+        ? (process.env.OLLAMA_STORY_MODEL ?? process.env.OLLAMA_MODEL ?? "llama3.2")
+        : getStoryPlannerModel(),
     imageModel: getStoryImageModel(),
-    hasApiKey: Boolean(process.env.GEMINI_API_KEY),
+    hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
   });
 }
 
@@ -156,6 +161,74 @@ function buildStoryPlanPrompt(lesson: LessonSpec): string {
   });
 }
 
+const STORY_PLANNER_SYSTEM_TEXT =
+  "You are a children's storyboard planner for a Grade 2 educational game. Write vivid but concise story beats that are warm, visually rich, and safe for children. Return JSON only.";
+
+async function generateStoryPlanWithOllama(
+  lesson: LessonSpec
+): Promise<{ plan: StoryPlan | null; error: string | null; usage: GeminiUsageMetadata | null }> {
+  const model = process.env.OLLAMA_STORY_MODEL ?? process.env.OLLAMA_MODEL ?? "llama3.2";
+  const cacheKey = JSON.stringify({
+    version: "story-plan-v1",
+    provider: "ollama",
+    model,
+    prompt: buildStoryPlanPrompt(lesson),
+  });
+  const cachedPlan = await readJsonCache<StoryPlan>("story-plans", cacheKey);
+  if (cachedPlan) {
+    return { plan: cachedPlan, error: null, usage: null };
+  }
+
+  return withInFlightDedup("story-plans", cacheKey, async () => {
+    let rawText: string;
+    try {
+      rawText = await ollamaGenerateText({
+        system: STORY_PLANNER_SYSTEM_TEXT,
+        prompt: buildStoryPlanPrompt(lesson),
+        temperature: 0.3,
+        model,
+      });
+    } catch (error) {
+      console.warn("ollama:/api/story-studio/story-experience:plan:error", { model, error });
+      return { plan: null, error: STORY_PLAN_FALLBACK_WARNING, usage: null };
+    }
+
+    const jsonText = extractJsonObject(rawText) ?? rawText;
+
+    try {
+      const parsed = STORY_PLAN_SCHEMA.safeParse(JSON.parse(jsonText));
+      if (parsed.success) {
+        const plan = { ...parsed.data, scenes: parsed.data.scenes.slice(0, 2) };
+        await writeJsonCache("story-plans", cacheKey, plan);
+        return { plan, error: null, usage: null };
+      }
+    } catch {
+      try {
+        const repaired = JSON.parse(sanitizeModelJson(jsonText));
+        const parsed = STORY_PLAN_SCHEMA.safeParse(repaired);
+        if (parsed.success) {
+          const plan = { ...parsed.data, scenes: parsed.data.scenes.slice(0, 2) };
+          await writeJsonCache("story-plans", cacheKey, plan);
+          return { plan, error: null, usage: null };
+        }
+      } catch {
+        return { plan: null, error: "Story planner returned malformed JSON.", usage: null };
+      }
+    }
+
+    return { plan: null, error: "Story planner returned malformed JSON.", usage: null };
+  });
+}
+
+async function generateStoryPlan(
+  lesson: LessonSpec
+): Promise<{ plan: StoryPlan | null; error: string | null; usage: GeminiUsageMetadata | null }> {
+  if (getServerLlmProvider() === "ollama") {
+    return generateStoryPlanWithOllama(lesson);
+  }
+  return generateStoryPlanWithGemini(lesson);
+}
+
 async function generateStoryPlanWithGemini(
   lesson: LessonSpec
 ): Promise<{ plan: StoryPlan | null; error: string | null; usage: GeminiUsageMetadata | null }> {
@@ -186,8 +259,7 @@ async function generateStoryPlanWithGemini(
           systemInstruction: {
             parts: [
               {
-                text:
-                  "You are a children's storyboard planner for a Grade 2 educational game. Write vivid but concise story beats that are warm, visually rich, and safe for children. Return JSON only.",
+                text: STORY_PLANNER_SYSTEM_TEXT,
               },
             ],
           },
@@ -258,6 +330,10 @@ async function generateStoryPlanWithGemini(
 }
 
 async function generateSceneImage(prompt: string): Promise<{ imageDataUrl: string | null; error: string | null }> {
+  if (getServerLlmProvider() === "ollama") {
+    return { imageDataUrl: null, error: STORY_IMAGE_FALLBACK_WARNING };
+  }
+
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return { imageDataUrl: null, error: STORY_IMAGE_FALLBACK_WARNING };
 
@@ -358,7 +434,7 @@ export async function POST(request: Request) {
   }
 
   const warnings: string[] = [];
-  const plannedStory = await generateStoryPlanWithGemini(lesson);
+  const plannedStory = await generateStoryPlan(lesson);
   const storyPlan = plannedStory.plan ?? buildSeedStoryPlan(lesson);
   const source = plannedStory.plan ? "live" : "seed";
   if (plannedStory.error) {

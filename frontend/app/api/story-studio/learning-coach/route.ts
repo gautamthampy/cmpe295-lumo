@@ -7,6 +7,7 @@ import {
   withInFlightDedup,
   writeJsonCache,
 } from "@/lib/story-studio/server/gemini-cache";
+import { getServerLlmProvider, ollamaGenerateText } from "@/lib/story-studio/server/llm-provider";
 
 export const runtime = "nodejs";
 
@@ -109,10 +110,13 @@ export async function POST(request: Request) {
   }
 
   const params = parsedRequest.data;
-  const model = process.env.GEMINI_COACH_MODEL ?? process.env.GEMINI_MODEL ?? "gemini-3-flash-preview";
+  const provider = getServerLlmProvider();
+  const geminiModel = process.env.GEMINI_COACH_MODEL ?? process.env.GEMINI_MODEL ?? "gemini-3-flash-preview";
+  const ollamaModel = process.env.OLLAMA_COACH_MODEL ?? process.env.OLLAMA_MODEL ?? "llama3.2";
   const cacheKey = JSON.stringify({
-    version: "learning-coach-v1",
-    model,
+    version: "learning-coach-v2",
+    provider,
+    model: provider === "ollama" ? ollamaModel : geminiModel,
     prompt: buildPrompt(params),
   });
 
@@ -125,13 +129,42 @@ export async function POST(request: Request) {
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
+  if (provider !== "ollama" && !apiKey) {
     return NextResponse.json(buildOfflineCoach(params.studentMessage, params.lesson.childName));
   }
 
   const result = await withInFlightDedup("learning-coach", cacheKey, async () => {
+    if (provider === "ollama") {
+      const system =
+        "You are an elementary Socratic tutor. Never give final answers, completed worksheet responses, or copyable submission text. Instead guide the student to discover the answer. Be warm and concise. Use child-friendly language. Respond with JSON only matching: coachReply, nextStep, reflectionQuestion, blockedDirectAnswer (boolean).";
+      try {
+        const rawText = await ollamaGenerateText({
+          system,
+          prompt: buildPrompt(params),
+          temperature: 0.2,
+          model: ollamaModel,
+        });
+        const jsonText = extractJsonObject(rawText) ?? rawText;
+        const parsed = RESPONSE_SCHEMA.safeParse({
+          ...(JSON.parse(jsonText || "{}") as object),
+          warnings: [],
+        });
+        if (parsed.success) {
+          await writeJsonCache("learning-coach", cacheKey, parsed.data);
+          return parsed.data;
+        }
+      } catch {
+        return buildOfflineCoach(params.studentMessage, params.lesson.childName);
+      }
+      return buildOfflineCoach(params.studentMessage, params.lesson.childName);
+    }
+
+    if (!apiKey) {
+      return buildOfflineCoach(params.studentMessage, params.lesson.childName);
+    }
+
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent`,
       {
         method: "POST",
         headers: {

@@ -8,7 +8,6 @@ from app.main import app
 from app.core.database import Base, engine, SessionLocal
 from app.models.attention import AttentionMetric
 from app.models.events import UserEvent
-from app.models.lesson import Lesson  # ensure content.lessons is in metadata for FKs
 
 
 @pytest.fixture

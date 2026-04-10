@@ -1,3 +1,7 @@
+/**
+ * Canonical browser client for analytics and attention APIs (proxied via `authRequest` / `/api/backend`).
+ * Prefer this module over ad-hoc `fetch` to localhost so auth and API prefixes stay consistent.
+ */
 import { authRequest } from "@/lib/auth";
 
 // ---- Analytics & Attention API ----

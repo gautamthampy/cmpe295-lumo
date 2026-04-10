@@ -7,7 +7,6 @@ from app.services.attention_peaks import (
     AttentionPeakWindow,
     get_attention_peaks_for_user,
 )
-from app.models.lesson import Lesson  # ensure content.lessons is in metadata
 
 
 def test_get_attention_peaks_for_user_basic():
