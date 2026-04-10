@@ -1,12 +1,12 @@
 /**
  * Server-side LLM routing for Story Studio API routes (Next.js).
- * Set LLM_PROVIDER=ollama and run Ollama locally; omit GEMINI_API_KEY.
+ * Defaults to Gemini; set LLM_PROVIDER=ollama to force local Ollama.
  */
 
 export type ServerLlmProviderName = "gemini" | "ollama";
 
 export function getServerLlmProvider(): ServerLlmProviderName {
-  const raw = (process.env.LLM_PROVIDER ?? "ollama").trim().toLowerCase();
+  const raw = (process.env.LLM_PROVIDER ?? "gemini").trim().toLowerCase();
   if (raw === "gemini") {
     return "gemini";
   }

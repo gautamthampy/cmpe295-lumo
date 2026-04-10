@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
 import { GeneratedMissionCallout } from "@/components/story-studio/generated-mission-callout";
-import { authRequest, authRoutes, type SubjectCatalogItem } from "@/lib/auth";
+import { authRequest, authRoutes, type StudentLearningPlanPayload, type SubjectCatalogItem } from "@/lib/auth";
 import { type LessonSummary, PLAYFUL_FALLBACK_LESSONS, fetchLessonSummaries, filterLessonsBySubject } from "@/lib/lessons";
 import { type PlannerRecommendResponse, fetchPlannerRecommendations } from "@/lib/planner";
 import { useAuthStore } from "@/lib/store/auth";
@@ -24,7 +24,6 @@ type SubjectMood = {
   description: string;
   Icon: LucideIcon;
   spotlightClass: string;
-  topics: string[];
 };
 
 const SUBJECT_MOODS: Record<string, SubjectMood> = {
@@ -34,7 +33,6 @@ const SUBJECT_MOODS: Record<string, SubjectMood> = {
     description: "Warm up with number patterns, playful problem-solving, and bite-sized practice that nudges confidence up one step at a time.",
     Icon: Calculator,
     spotlightClass: "bg-[linear-gradient(135deg,#fff4cf_0%,#ffd58c_48%,#ffe9b8_100%)]",
-    topics: ["Fractions", "Multiplication", "Place Value"],
   },
   "language-arts-writing": {
     accent: "text-[#5a3f8c]",
@@ -42,7 +40,6 @@ const SUBJECT_MOODS: Record<string, SubjectMood> = {
     description: "Build fluency through reading, vocabulary, and writing prompts that keep the tone encouraging rather than school-formal.",
     Icon: BookOpenText,
     spotlightClass: "bg-[linear-gradient(135deg,#f7ebff_0%,#dcc8ff_48%,#f4e6ff_100%)]",
-    topics: ["Small Moments", "Dialogue", "Sequencing"],
   },
   science: {
     accent: "text-[#045d56]",
@@ -50,7 +47,6 @@ const SUBJECT_MOODS: Record<string, SubjectMood> = {
     description: "Explore observation, experiments, and curiosity-driven questions with a calm, hands-on science mood.",
     Icon: FlaskConical,
     spotlightClass: "bg-[linear-gradient(135deg,#dcfff5_0%,#9be7d5_48%,#d8fff8_100%)]",
-    topics: ["Plants", "Weather", "Forces"],
   },
   "social-studies": {
     accent: "text-[#6f4a25]",
@@ -58,7 +54,6 @@ const SUBJECT_MOODS: Record<string, SubjectMood> = {
     description: "Move through rules, citizenship, and community geography with a social studies path that feels concrete and local.",
     Icon: Landmark,
     spotlightClass: "bg-[linear-gradient(135deg,#fff0dd_0%,#efc28d_48%,#fff6ec_100%)]",
-    topics: ["Citizenship", "Rules", "Maps"],
   },
 };
 
@@ -69,7 +64,6 @@ function getSubjectMood(subject: SubjectCatalogItem): SubjectMood {
     description: "Choose this subject to open the next part of the student learning experience.",
     Icon: Sparkles,
     spotlightClass: "bg-[linear-gradient(135deg,#e3f3ff_0%,#c8e7ff_48%,#f3fbff_100%)]",
-    topics: [subject.name, "Practice", "Review"],
   };
 }
 
@@ -111,6 +105,7 @@ function StudentLearnPageContent() {
   const token = useAuthStore((state) => state.token);
   const [ready, setReady] = useState(false);
   const [subjects, setSubjects] = useState<SubjectCatalogItem[]>([]);
+  const [subjectTopics, setSubjectTopics] = useState<Record<string, string[]>>({});
   const [loadingSubjects, setLoadingSubjects] = useState(true);
   const [subjectsError, setSubjectsError] = useState<string | null>(null);
   const [lessons, setLessons] = useState<LessonSummary[]>(PLAYFUL_FALLBACK_LESSONS);
@@ -175,35 +170,50 @@ function StudentLearnPageContent() {
     setLoadingSubjects(true);
     setSubjectsError(null);
 
-    const subjectPath = gradeLevel ? `${authRoutes.subjects}?grade_level=${gradeLevel}` : authRoutes.subjects;
-
-    authRequest<SubjectCatalogItem[]>(subjectPath, { method: "GET", cache: "no-store" })
+    authRequest<StudentLearningPlanPayload>(authRoutes.studentLearningPlan, { method: "GET", cache: "no-store" })
       .then((result) => {
         if (cancelled) {
           return;
         }
 
-        if (result.length) {
-          setSubjects(result);
+        if (result.subjects.length) {
+          setSubjects(
+            result.subjects.map((subject) => ({
+              subject_id: subject.subject_id,
+              name: subject.name,
+              slug: subject.slug,
+            }))
+          );
+          setSubjectTopics(
+            Object.fromEntries(
+              result.subjects.map((subject) => {
+                const configuredTopics = subject.topics.length ? subject.topics : (subject.availableTopics ?? []).slice(0, 3);
+                return [subject.slug, configuredTopics];
+              })
+            )
+          );
+          if (!result.configured) {
+            setSubjectsError(
+              `A parent learning plan has not been saved yet for Grade ${result.gradeLevel}. Showing grade defaults until the plan is configured.`
+            );
+          }
           return;
         }
 
         setSubjects(DEFAULT_SUBJECTS);
-        setSubjectsError(
-          gradeLevel
-            ? `Grade ${gradeLevel} does not have a published subject catalog yet, so this screen is using the built-in LUMO starter subjects instead.`
-            : "No subject catalog is published yet, so this screen is using the built-in LUMO starter subjects instead."
-        );
+        setSubjectTopics({});
+        setSubjectsError("No learning plan is available yet, so this screen is using the built-in LUMO starter subjects instead.");
       })
       .catch((requestError) => {
         if (cancelled) {
           return;
         }
         setSubjects(DEFAULT_SUBJECTS);
+        setSubjectTopics({});
         setSubjectsError(
           requestError instanceof Error
             ? `${requestError.message} This screen is using the built-in LUMO starter subjects instead.`
-            : "We could not refresh the subject catalog from the backend, so this screen is using the built-in LUMO starter subjects instead."
+            : "We could not refresh the student learning plan from the backend, so this screen is using the built-in LUMO starter subjects instead."
         );
       })
       .finally(() => {
@@ -215,7 +225,7 @@ function StudentLearnPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [gradeLevel, isAuthenticated, ready, role]);
+  }, [isAuthenticated, ready, role]);
 
   useEffect(() => {
     if (!ready || role !== "student" || !isAuthenticated()) {
@@ -226,7 +236,7 @@ function StudentLearnPageContent() {
     setLoadingLessons(true);
     setLessonsError(null);
 
-    fetchLessonSummaries()
+    fetchLessonSummaries(undefined, gradeLevel ?? undefined)
       .then((result) => {
         if (!cancelled) {
           setLessons(result);
@@ -253,7 +263,7 @@ function StudentLearnPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, ready, role]);
+  }, [gradeLevel, isAuthenticated, ready, role]);
 
   useEffect(() => {
     if (!ready || role !== "student" || !isAuthenticated() || !userId) {
@@ -293,10 +303,16 @@ function StudentLearnPageContent() {
   }
 
   const selectedSubjectSlug = searchParams.get("subject");
-  const selectedSubject = subjects.find((subject) => subject.slug === selectedSubjectSlug) ?? null;
-  const spotlightSubject = selectedSubject ?? subjects[0] ?? null;
+  const activeSubjects = subjects.length ? subjects : DEFAULT_SUBJECTS;
+  const selectedSubject = activeSubjects.find((subject) => subject.slug === selectedSubjectSlug) ?? null;
+  const spotlightSubject = selectedSubject ?? activeSubjects[0] ?? null;
   const spotlightMood = spotlightSubject ? getSubjectMood(spotlightSubject) : null;
-  const spotlightLessons = spotlightSubject ? filterLessonsBySubject(lessons, spotlightSubject.slug).slice(0, 3) : [];
+  const visibleSubjectSlugs = new Set(activeSubjects.map((subject) => subject.slug));
+  const visibleLessons = lessons.filter((lesson) => visibleSubjectSlugs.has(lesson.subject));
+  const spotlightLessons = spotlightSubject ? filterLessonsBySubject(visibleLessons, spotlightSubject.slug).slice(0, 3) : [];
+  const configuredTopics = spotlightSubject ? subjectTopics[spotlightSubject.slug] ?? [] : [];
+  const fallbackTopics = spotlightLessons.map((lesson) => lesson.title).slice(0, 3);
+  const spotlightTopics = configuredTopics.length ? configuredTopics : fallbackTopics.length ? fallbackTopics : spotlightSubject ? [spotlightSubject.name] : [];
   const lessonLibraryHref = spotlightSubject ? `/lessons?subject=${spotlightSubject.slug}` : "/lessons";
   const spotlightHeading = !loadingLessons && !spotlightLessons.length ? "Adventure setup" : "Ready to explore";
   const isLessonAreaLoading = loadingLessons || loadingSubjects || !spotlightSubject;
@@ -433,7 +449,7 @@ function StudentLearnPageContent() {
                 </p>
                 <p className="mt-4 max-w-2xl font-body text-base leading-7 text-[#304255]">{spotlightMood.description}</p>
                 <div className="mt-6 flex flex-wrap gap-3">
-                  {spotlightMood.topics.map((topic) => (
+                  {spotlightTopics.map((topic) => (
                     <span key={topic} className="rounded-full bg-white/75 px-4 py-2 font-['Plus_Jakarta_Sans'] text-xs font-bold uppercase tracking-[0.2em] text-[#304255] shadow-[0_10px_30px_-24px_rgba(19,34,56,0.35)]">
                       {topic}
                     </span>

@@ -22,17 +22,6 @@ import {
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1";
 const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? "lumo_session";
 
-type StudentLearningSummaryPayload = {
-  user_id: string;
-  overall_mastery: number;
-  time_spent_minutes: number;
-  time_per_concept?: { module_id: string; module_title: string; minutes: number }[];
-  strengths?: string[];
-  weaknesses?: string[];
-  lessons_completed: number;
-  quizzes_taken: number;
-};
-
 async function readPortalSession(): Promise<SessionPayload | null> {
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get(SESSION_COOKIE_NAME)?.value;
@@ -75,22 +64,6 @@ async function readParentDashboard(): Promise<ParentDashboardPayload | null> {
   }
 
   return (await response.json()) as ParentDashboardPayload;
-}
-
-async function readStudentLearningSummary(
-  studentId: string,
-  sessionCookie: string,
-): Promise<StudentLearningSummaryPayload | null> {
-  const response = await fetch(`${API_BASE_URL}${authRoutes.studentLearningSummary(studentId)}`, {
-    headers: {
-      Cookie: `${SESSION_COOKIE_NAME}=${sessionCookie}`,
-    },
-    cache: "no-store",
-  });
-  if (!response.ok) {
-    return null;
-  }
-  return (await response.json()) as StudentLearningSummaryPayload;
 }
 
 function formatParentGreeting(email?: string) {
@@ -152,17 +125,6 @@ export default async function PortalPlaceholderPage() {
 
   const students = dashboard.students;
   const studentCountLabel = students.length === 1 ? "learner" : "learners";
-
-  const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get(SESSION_COOKIE_NAME)?.value ?? "";
-  const learningByStudent: Record<string, StudentLearningSummaryPayload | null> = {};
-  if (sessionCookie && students.length > 0) {
-    await Promise.all(
-      students.map(async (s) => {
-        learningByStudent[s.student_id] = await readStudentLearningSummary(s.student_id, sessionCookie);
-      }),
-    );
-  }
 
   return (
     <main className="paper-noise min-h-screen bg-surface pb-20 text-on-surface">
@@ -343,71 +305,37 @@ export default async function PortalPlaceholderPage() {
             ) : (
               <div className="mt-6 grid gap-4 md:grid-cols-2">
                 {students.map((student, index) => {
-                  const learn = learningByStudent[student.student_id];
-                  const topModules = (learn?.time_per_concept ?? []).slice(0, 3);
+                  const detailsHref = `/lessons/analytics?student_id=${encodeURIComponent(student.student_id)}`;
                   return (
                   <article
                     key={student.student_id}
                     className={`rounded-[1.8rem] p-6 shadow-ambient ${getStudentCardTone(index)}`}
                   >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex items-start gap-4">
-                        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-surface-container-lowest text-3xl shadow-sm">
-                          {getAvatarEmoji(student.avatar_id)}
+                    <Link href={detailsHref} className="group block rounded-[1.3rem] transition-transform duration-150 hover:scale-[0.995]">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex items-start gap-4">
+                          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-surface-container-lowest text-3xl shadow-sm">
+                            {getAvatarEmoji(student.avatar_id)}
+                          </div>
+                          <div>
+                            <p className="font-headline text-2xl font-extrabold tracking-[-0.04em] text-on-surface">
+                              {student.display_name}
+                            </p>
+                            <p className="mt-1 font-body text-sm text-on-surface-variant">
+                              Grade {student.grade_level}
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-headline text-2xl font-extrabold tracking-[-0.04em] text-on-surface">
-                            {student.display_name}
-                          </p>
-                          <p className="mt-1 font-body text-sm text-on-surface-variant">
-                            Grade {student.grade_level}
-                          </p>
-                        </div>
+                        <span className="rounded-full bg-surface-container-lowest px-3 py-1 font-label text-xs font-bold uppercase tracking-[0.18em] text-outline">
+                          Ready
+                        </span>
                       </div>
-                      <span className="rounded-full bg-surface-container-lowest px-3 py-1 font-label text-xs font-bold uppercase tracking-[0.18em] text-outline">
-                        Ready
-                      </span>
-                    </div>
 
-                    {learn ? (
-                      <div className="mt-4 rounded-[1.2rem] bg-surface-container-lowest/80 p-4">
-                        <p className="font-label text-xs font-bold uppercase tracking-[0.2em] text-outline">
-                          Learning snapshot
-                        </p>
-                        <p className="mt-2 font-headline text-lg font-extrabold text-on-surface">
-                          Mastery {learn.overall_mastery.toFixed(0)}% · {learn.time_spent_minutes.toFixed(0)} min on lessons
-                        </p>
-                        <p className="mt-1 font-body text-xs text-on-surface-variant">
-                          {learn.lessons_completed} lessons completed · {learn.quizzes_taken} quizzes
-                        </p>
-                        {learn.strengths?.length ? (
-                          <p className="mt-2 font-body text-xs text-on-surface-variant">
-                            <span className="font-semibold text-on-surface">Strengths:</span>{" "}
-                            {learn.strengths.join(", ")}
-                          </p>
-                        ) : null}
-                        {learn.weaknesses?.length ? (
-                          <p className="mt-1 font-body text-xs text-on-surface-variant">
-                            <span className="font-semibold text-on-surface">Needs practice:</span>{" "}
-                            {learn.weaknesses.join(", ")}
-                          </p>
-                        ) : null}
-                        {topModules.length > 0 ? (
-                          <ul className="mt-3 space-y-1 font-body text-xs text-on-surface-variant">
-                            {topModules.map((m) => (
-                              <li key={m.module_id}>
-                                <span className="font-semibold text-on-surface">{m.module_title}</span> —{" "}
-                                {m.minutes.toFixed(1)} min
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className="mt-2 font-body text-xs text-on-surface-variant">
-                            Time by module appears after catalog lessons with telemetry.
-                          </p>
-                        )}
-                      </div>
-                    ) : null}
+                      <p className="mt-4 inline-flex items-center gap-2 font-label text-sm font-bold text-primary">
+                        Open lessons, progress, and analytics
+                        <ArrowUpRight className="h-4 w-4 transition-transform duration-150 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                      </p>
+                    </Link>
 
                     <p className="mt-4 font-body text-sm leading-6 text-on-surface-variant">
                       Generate a secure code when {student.display_name} is ready to sign in on a
@@ -490,7 +418,13 @@ export default async function PortalPlaceholderPage() {
         </section>
 
         <section id="story-studio" className="mt-8 rounded-[2.4rem] bg-surface-container-high p-4 md:p-6">
-          <PortalStoryStudio />
+          <PortalStoryStudio
+            learners={students.map((student) => ({
+              studentId: student.student_id,
+              displayName: student.display_name,
+              gradeLevel: student.grade_level,
+            }))}
+          />
         </section>
       </div>
     </main>

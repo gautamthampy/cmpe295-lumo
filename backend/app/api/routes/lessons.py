@@ -31,25 +31,35 @@ _CATALOG_ACCESSIBILITY_SCORE = 90
 
 def _aggregate_lesson_events_for_student(
     db: Session, student_id: UUID
-) -> tuple[dict[str, list[float]], dict[str, int]]:
-    """Quiz attempt pass rates (0–100) and section_view counts per lesson from `events.user_events`."""
+) -> tuple[dict[str, list[float]], dict[str, int], set[str]]:
+    """Quiz pass rates, section views, and touched lesson ids from `events.user_events`."""
     rates_by_lesson: dict[str, list[float]] = defaultdict(list)
     sections_by_lesson: dict[str, int] = defaultdict(int)
-    rows = db.query(UserEvent).filter(UserEvent.user_id == student_id).all()
+    touched_lessons: set[str] = set()
+    try:
+        rows = db.query(UserEvent).filter(UserEvent.user_id == student_id).all()
+    except Exception:
+        return {}, {}, set()
     for row in rows:
         payload = row.event_data if isinstance(row.event_data, dict) else {}
+        nested = payload.get("data") if isinstance(payload.get("data"), dict) else {}
         ev = payload.get("event") or row.event_type
-        lid = payload.get("lesson_id")
-        if not isinstance(lid, str):
+        lid_raw = nested.get("lesson_id") or payload.get("lesson_id")
+        if lid_raw is None:
             continue
-        if ev == "quiz_submit":
-            score = payload.get("quiz_score")
-            total = payload.get("quiz_total")
+        lid = str(lid_raw).strip()
+        if not lid:
+            continue
+        touched_lessons.add(lid)
+
+        if ev in {"quiz_submit", "quiz_completed"}:
+            score = nested.get("quiz_score") if "quiz_score" in nested else payload.get("quiz_score")
+            total = nested.get("quiz_total") if "quiz_total" in nested else payload.get("quiz_total")
             if isinstance(score, (int, float)) and isinstance(total, (int, float)) and float(total) > 0:
                 rates_by_lesson[lid].append(100.0 * float(score) / float(total))
         elif ev == "section_view":
             sections_by_lesson[lid] += 1
-    return dict(rates_by_lesson), dict(sections_by_lesson)
+    return dict(rates_by_lesson), dict(sections_by_lesson), touched_lessons
 
 
 def _activity_payload(activity: dict[str, object]) -> str:
@@ -224,12 +234,18 @@ def lesson_analytics_summary(
 
     rates_by_lesson: dict[str, list[float]] = {}
     sections_by_lesson: dict[str, int] = {}
+    touched_lessons: set[str] = set()
     if student_uuid:
-        rates_by_lesson, sections_by_lesson = _aggregate_lesson_events_for_student(db, student_uuid)
+        rates_by_lesson, sections_by_lesson, touched_lessons = _aggregate_lesson_events_for_student(db, student_uuid)
+        if not touched_lessons:
+            return LessonAnalyticsSummaryResponse(total_lessons=0, avg_accessibility=0, avg_quiz_pass=0, lessons=[])
 
     metrics: list[LessonAnalyticsMetricResponse] = []
     for subject, _, lesson in entries:
         lid = lesson.external_id
+        if student_uuid and lid not in touched_lessons:
+            continue
+
         if student_uuid and rates_by_lesson.get(lid):
             quiz_pass = round(sum(rates_by_lesson[lid]) / len(rates_by_lesson[lid]))
         else:
@@ -237,6 +253,8 @@ def lesson_analytics_summary(
 
         if student_uuid and sections_by_lesson.get(lid, 0) > 0:
             accessibility_score = min(100, 65 + min(sections_by_lesson[lid], 7) * 5)
+        elif student_uuid:
+            accessibility_score = 0
         else:
             accessibility_score = _CATALOG_ACCESSIBILITY_SCORE
 

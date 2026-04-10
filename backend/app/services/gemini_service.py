@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 _gemini_service_instance: Optional["GeminiService"] = None
 
+from app.core.config import settings
 from app.services.pii_redaction import redact_pii
 
 
@@ -25,11 +26,11 @@ class GeminiService:
     """LLM wrapper for Gemini or Ollama with deterministic fallback."""
 
     def __init__(self) -> None:
-        self.provider = os.getenv("LLM_PROVIDER", "gemini").strip().lower()
-        self.api_key = os.getenv("GEMINI_API_KEY", "")
-        self.model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-        self.ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
-        self.ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+        self.provider = os.getenv("LLM_PROVIDER", settings.LLM_PROVIDER).strip().lower()
+        self.api_key = os.getenv("GEMINI_API_KEY", settings.GEMINI_API_KEY).strip()
+        self.model_name = os.getenv("GEMINI_MODEL", settings.GEMINI_MODEL).strip()
+        self.ollama_base_url = os.getenv("OLLAMA_BASE_URL", settings.OLLAMA_BASE_URL).rstrip("/")
+        self.ollama_model = os.getenv("OLLAMA_MODEL", settings.OLLAMA_MODEL).strip()
         self.model: Any = None
 
         if self.provider == "ollama":
@@ -40,15 +41,8 @@ class GeminiService:
             return
 
         if self.api_key:
-            try:
-                import google.generativeai as genai  # type: ignore[import-untyped]
-
-                genai.configure(api_key=self.api_key)
-                self.model = genai.GenerativeModel(self.model_name)
-                logger.info("GeminiService initialized with model %s", self.model_name)
-            except Exception as exc:
-                logger.warning("Failed to initialize Gemini model: %s — using mocks", exc)
-                self.model = None
+            self.model = "gemini"
+            logger.info("GeminiService configured for Gemini model %s", self.model_name)
         else:
             logger.info("GEMINI_API_KEY not set — GeminiService will use mock responses")
 
@@ -180,8 +174,47 @@ class GeminiService:
         prompt = redact_pii(prompt)
         if self.provider == "ollama":
             return await self._call_ollama(prompt)
-        response = self.model.generate_content(prompt)
-        return response.text.strip()
+        return await self._call_gemini(prompt)
+
+    async def _call_gemini(self, prompt: str) -> str:
+        if not self.api_key:
+            raise ValueError("Missing GEMINI_API_KEY for Gemini provider")
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:generateContent"
+        payload = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": prompt}],
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.2,
+                "maxOutputTokens": 1024,
+            },
+        }
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                url,
+                headers={
+                    "x-goog-api-key": self.api_key,
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            resp.raise_for_status()
+            body = resp.json()
+
+        candidates = body.get("candidates") or []
+        if not candidates:
+            raise ValueError("Gemini returned no candidates")
+
+        parts = ((candidates[0].get("content") or {}).get("parts") or [])
+        text = "".join(part.get("text", "") for part in parts).strip()
+        if not text:
+            raise ValueError("Gemini returned empty text")
+        return text
 
     async def _call_ollama(self, prompt: str) -> str:
         payload = {

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
-from app.models.auth import ParentUser, StaffUser, Student
+from app.models.auth import ParentUser, StaffUser, Student, StudentCurriculumPreference
 from app.models.catalog import CurriculumLesson, CurriculumModule, CurriculumSubject
 from app.schemas.auth import (
     CurriculumLessonResponse,
@@ -26,6 +26,9 @@ from app.schemas.auth import (
     SignUpRequest,
     SignUpResponse,
     StudentSessionResponse,
+    StudentLearningPlanResponse,
+    StudentLearningPlanSubjectResponse,
+    StudentLearningPlanUpdateRequest,
     SubjectCatalogResponse,
     StudentAuthResponse,
     StudentCreateRequest,
@@ -63,6 +66,40 @@ from app.services.security import hash_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
+
+# Keep parent learning-plan topic chips aligned with Story Studio topic dropdown labels.
+STORY_STUDIO_TOPIC_LABELS_BY_SUBJECT: dict[str, list[str]] = {
+    "math": [
+        "Addition and Subtraction Situations (within 20)",
+        "Even and Odd Numbers, Arrays, Equal Groups",
+        "Addition and Subtraction within 100 (Regrouping)",
+        "Three-Digit Numbers (Counting to 1,000)",
+        "Compare Three-Digit Numbers",
+        "Multi-digit Addition (within 1,000)",
+        "Money (coins and bills)",
+        "Length and Measurement",
+    ],
+    "language-arts-writing": [
+        "Plants and Animals in Their Habitats",
+        "Characters Facing Challenges",
+        "Government at Work",
+        "Many Characters, Many Points of View",
+        "Solving Problems Through Technology",
+        "Tales to Live By",
+        "Investigating the Past",
+        "Wind and Water Change Earth",
+        "Buyers and Sellers",
+        "States of Matter",
+    ],
+    "science": [
+        "Interdependent Relationships in Ecosystems",
+        "Earth's Systems: Processes that Shape the Earth",
+        "Structure and Properties of Matter",
+    ],
+    "social-studies": [
+        "People Who Make a Difference",
+    ],
+}
 
 
 @router.post("/staff/sign-in", response_model=SessionResponse)
@@ -207,6 +244,84 @@ def build_student_auth_response(student: Student, settings: Settings) -> Student
 
 def serialize_subject_catalog(subject: CurriculumSubject) -> SubjectCatalogResponse:
     return SubjectCatalogResponse(subject_id=subject.slug, name=subject.name, slug=subject.slug)
+
+
+def _extract_subject_topics(subject: CurriculumSubject, *, limit: int = 6) -> list[str]:
+    preferred_topics = STORY_STUDIO_TOPIC_LABELS_BY_SUBJECT.get(subject.slug)
+    if preferred_topics:
+        return preferred_topics[:limit]
+
+    collected: list[str] = []
+    for module in subject.modules:
+        for lesson in module.lessons:
+            topic = lesson.title.strip()
+            if not topic or topic in collected:
+                continue
+            collected.append(topic)
+            if len(collected) >= limit:
+                return collected
+    return collected
+
+
+def _read_student_curriculum_preferences(
+    db: Session,
+    student: Student,
+) -> tuple[bool, list[StudentLearningPlanSubjectResponse]]:
+    subjects_for_grade = get_grade_curriculum(db, student.grade_level)
+    subjects_by_id = {subject.id: subject for subject in subjects_for_grade}
+
+    stored_preferences = (
+        db.query(StudentCurriculumPreference)
+        .filter(StudentCurriculumPreference.student_id == student.student_id)
+        .all()
+    )
+    if stored_preferences:
+        selections: list[StudentLearningPlanSubjectResponse] = []
+        for preference in stored_preferences:
+            curriculum_subject = subjects_by_id.get(preference.curriculum_subject_id)
+            if curriculum_subject is None:
+                continue
+
+            available_topic_list = _extract_subject_topics(curriculum_subject, limit=20)
+            available_topic_set = set(available_topic_list)
+            chosen_topics = [topic for topic in preference.topics if topic in available_topic_set]
+            if not chosen_topics:
+                chosen_topics = _extract_subject_topics(curriculum_subject, limit=3)
+
+            selections.append(
+                StudentLearningPlanSubjectResponse(
+                    subject_id=curriculum_subject.slug,
+                    name=curriculum_subject.name,
+                    slug=curriculum_subject.slug,
+                    topics=chosen_topics,
+                    availableTopics=available_topic_list,
+                )
+            )
+        if selections:
+            return True, selections
+
+    fallback_subjects = list_curriculum_subjects(db, grade_level=student.grade_level)
+    fallback_selections = [
+        StudentLearningPlanSubjectResponse(
+            subject_id=subject.slug,
+            name=subject.name,
+            slug=subject.slug,
+            topics=_extract_subject_topics(subject, limit=3),
+            availableTopics=_extract_subject_topics(subject, limit=6),
+        )
+        for subject in fallback_subjects
+    ]
+    return False, fallback_selections
+
+
+def _serialize_student_learning_plan(db: Session, student: Student) -> StudentLearningPlanResponse:
+    configured, subjects = _read_student_curriculum_preferences(db, student)
+    return StudentLearningPlanResponse(
+        studentId=student.student_id,
+        gradeLevel=student.grade_level,
+        configured=configured,
+        subjects=subjects,
+    )
 
 
 def serialize_curriculum_lesson(lesson: CurriculumLesson) -> CurriculumLessonResponse:
@@ -410,7 +525,25 @@ def read_parent_dashboard(
     settings: Settings = Depends(get_settings),
 ) -> ParentDashboardResponse:
     parent_user = get_current_parent_user(request, db, settings)
-    students = [serialize_student(student) for student in sorted(parent_user.students, key=lambda item: item.created_at)]
+    students = []
+    for student in sorted(parent_user.students, key=lambda item: item.created_at):
+        _, selected_subjects = _read_student_curriculum_preferences(db, student)
+        students.append(
+            StudentSummaryResponse(
+                student_id=student.student_id,
+                display_name=student.display_name,
+                grade_level=student.grade_level,
+                avatar_id=student.avatar_id,
+                subjects=[
+                    SubjectCatalogResponse(
+                        subject_id=subject.slug,
+                        name=subject.name,
+                        slug=subject.slug,
+                    )
+                    for subject in selected_subjects
+                ],
+            )
+        )
     return ParentDashboardResponse(parent_id=parent_user.id, email=parent_user.email, students=students)
 
 
@@ -457,6 +590,97 @@ def create_student_profile(
     db.commit()
     db.refresh(student)
     return serialize_student(student)
+
+
+@router.get("/students/{student_id}/learning-plan", response_model=StudentLearningPlanResponse)
+def read_student_learning_plan(
+    student_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> StudentLearningPlanResponse:
+    parent_user = get_current_parent_user(request, db, settings)
+    student = db.get(Student, student_id)
+    if student is None or student.parent_user_id != parent_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found.")
+
+    return _serialize_student_learning_plan(db, student)
+
+
+@router.put("/students/{student_id}/learning-plan", response_model=StudentLearningPlanResponse)
+def update_student_learning_plan(
+    student_id: str,
+    payload: StudentLearningPlanUpdateRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> StudentLearningPlanResponse:
+    parent_user = get_current_parent_user(request, db, settings)
+    student = db.get(Student, student_id)
+    if student is None or student.parent_user_id != parent_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found.")
+
+    grade_subjects = list_curriculum_subjects(db, grade_level=student.grade_level)
+    subjects_by_slug = {subject.slug: subject for subject in grade_subjects}
+
+    requested_subjects: list[tuple[CurriculumSubject, list[str]]] = []
+    seen_slugs: set[str] = set()
+    for selection in payload.subject_selections:
+        slug = selection.slug.strip()
+        if not slug or slug in seen_slugs:
+            continue
+        seen_slugs.add(slug)
+
+        curriculum_subject = subjects_by_slug.get(slug)
+        if curriculum_subject is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Subject '{slug}' is not available for Grade {student.grade_level}.",
+            )
+
+        available_topics = set(_extract_subject_topics(curriculum_subject, limit=20))
+        sanitized_topics: list[str] = []
+        for topic in selection.topics:
+            normalized_topic = topic.strip()
+            if not normalized_topic or normalized_topic not in available_topics:
+                continue
+            if normalized_topic in sanitized_topics:
+                continue
+            sanitized_topics.append(normalized_topic)
+            if len(sanitized_topics) >= 6:
+                break
+
+        requested_subjects.append((curriculum_subject, sanitized_topics))
+
+    (
+        db.query(StudentCurriculumPreference)
+        .filter(StudentCurriculumPreference.student_id == student.student_id)
+        .delete(synchronize_session=False)
+    )
+
+    for curriculum_subject, topics in requested_subjects:
+        db.add(
+            StudentCurriculumPreference(
+                student_id=student.student_id,
+                curriculum_subject_id=curriculum_subject.id,
+                topics=topics,
+            )
+        )
+
+    db.commit()
+    return _serialize_student_learning_plan(db, student)
+
+
+@router.get("/student/learning-plan", response_model=StudentLearningPlanResponse)
+def read_authenticated_student_learning_plan(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> StudentLearningPlanResponse:
+    student = get_current_student_from_bearer_token(request, db)
+    if student is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Student authentication required.")
+
+    return _serialize_student_learning_plan(db, student)
 
 
 @router.post("/student-login/request-code", response_model=StudentLoginCodeIssueResponse)

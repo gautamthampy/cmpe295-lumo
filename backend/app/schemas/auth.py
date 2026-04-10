@@ -102,6 +102,7 @@ class StudentSummaryResponse(BaseModel):
     display_name: str
     grade_level: int
     avatar_id: str
+    subjects: list[SubjectCatalogResponse] = Field(default_factory=list)
 
 
 class StudentCreateRequest(BaseModel):
@@ -117,6 +118,36 @@ class ParentDashboardResponse(BaseModel):
     parent_id: str
     email: str
     students: list[StudentSummaryResponse] = Field(default_factory=list)
+
+
+class StudentLearningPlanSubjectResponse(SubjectCatalogResponse):
+    model_config = ConfigDict(populate_by_name=True)
+
+    topics: list[str] = Field(default_factory=list)
+    available_topics: list[str] = Field(default_factory=list, serialization_alias="availableTopics")
+
+
+class StudentLearningPlanResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    student_id: str = Field(alias="studentId")
+    grade_level: int = Field(alias="gradeLevel")
+    configured: bool
+    subjects: list[StudentLearningPlanSubjectResponse] = Field(default_factory=list)
+
+
+class StudentLearningPlanSubjectSelection(BaseModel):
+    slug: str = Field(min_length=1)
+    topics: list[str] = Field(default_factory=list)
+
+
+class StudentLearningPlanUpdateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    subject_selections: list[StudentLearningPlanSubjectSelection] = Field(
+        default_factory=list,
+        alias="subjectSelections",
+    )
 
 
 class StudentLoginCodeRequest(BaseModel):

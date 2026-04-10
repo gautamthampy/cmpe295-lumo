@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 
 import { AuthCard, AuthTopBar } from "@/components/auth/auth-shell";
 import { ParentStudentCodeButton } from "@/components/auth/parent-student-code-button";
+import { StudentLearningPlanManager } from "@/components/auth/student-learning-plan-manager";
 import { StudentProfileCreator } from "@/components/auth/student-profile-creator";
 import { authRoutes, type ParentDashboardPayload, type SessionPayload } from "@/lib/auth";
 
@@ -120,6 +121,7 @@ export default async function StudentsPage() {
                     <span className="rounded-full bg-primary-fixed px-3 py-1 font-label text-xs font-bold uppercase tracking-[0.2em] text-primary">{student.avatar_id}</span>
                   </div>
                   <ParentStudentCodeButton studentId={student.student_id} studentName={student.display_name} />
+                  <StudentLearningPlanManager studentId={student.student_id} gradeLevel={student.grade_level} />
                 </AuthCard>
               ))}
               </div>

@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Uuid, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, UniqueConstraint, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+if TYPE_CHECKING:
+    from app.models.catalog import CurriculumSubject
+    from app.models.subject import StudentSubject
 
 from app.core.database import Base
 
@@ -95,9 +100,48 @@ class Student(Base):
 
     parent_user: Mapped[ParentUser] = relationship(back_populates="students")
     login_codes: Mapped[list[StudentLoginCodeToken]] = relationship(back_populates="student")
-    # Relationship used by content.student_subjects join model.
-    # Use passive_deletes so deletes don't require loading content.* tables (sqlite test DB).
-    enrolled_subjects = relationship("StudentSubject", back_populates="student", passive_deletes=True)
+    enrolled_subjects: Mapped[list[StudentSubject]] = relationship(
+        "StudentSubject",
+        back_populates="student",
+        passive_deletes=True,
+    )
+    curriculum_preferences: Mapped[list[StudentCurriculumPreference]] = relationship(
+        "StudentCurriculumPreference",
+        back_populates="student",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class StudentCurriculumPreference(Base):
+    __tablename__ = "student_curriculum_preferences"
+    __table_args__ = (
+        UniqueConstraint(
+            "student_id",
+            "curriculum_subject_id",
+            name="uq_student_curriculum_preference_subject",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    student_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey("students.student_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    curriculum_subject_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey("curriculum_subjects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    topics: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, server_default=func.now())
+
+    student: Mapped[Student] = relationship(back_populates="curriculum_preferences")
+    curriculum_subject: Mapped[CurriculumSubject] = relationship()
 
 
 class StudentLoginCodeToken(Base):
