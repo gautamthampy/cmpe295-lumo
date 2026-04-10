@@ -230,10 +230,13 @@ export function buildFallbackQuiz(lesson: LessonRenderPayload): LessonQuizPayloa
   };
 }
 
-export async function fetchLessonSummaries(subject?: string) {
+export async function fetchLessonSummaries(subject?: string, gradeLevel?: number) {
   const params = new URLSearchParams();
   if (subject) {
     params.set("subject", subject);
+  }
+  if (gradeLevel) {
+    params.set("grade_level", String(gradeLevel));
   }
 
   const query = params.toString();

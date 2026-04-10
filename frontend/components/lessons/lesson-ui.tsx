@@ -906,20 +906,26 @@ export function LessonsAnalyticsExperience() {
                 <Trophy className="h-5 w-5 text-[#8a5d00]" />
                 <h3 className="font-['Plus_Jakarta_Sans'] text-3xl font-black tracking-[-0.05em] text-[#1f1b00]">Lesson Metrics</h3>
               </div>
-              <ul aria-label="Lesson metrics" className="space-y-4">
-                {metrics.map((metric) => (
-                  <li key={metric.lesson_id} className="flex flex-col gap-4 rounded-[1.5rem] bg-[#fff9e8] p-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
-                    <div>
-                      <p className="font-['Plus_Jakarta_Sans'] text-2xl font-black tracking-[-0.04em] text-[#1f1b00]">{metric.title}</p>
-                      <p className="mt-1 font-['Be_Vietnam_Pro'] text-sm font-semibold text-[#5b4c2c]">{renderMetricSubtitle(metric)}</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <ScoreBadge score={metric.accessibility_score} />
-                      <ScoreBadge score={metric.quiz_pass_rate} />
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              {metrics.length > 0 ? (
+                <ul aria-label="Lesson metrics" className="space-y-4">
+                  {metrics.map((metric) => (
+                    <li key={metric.lesson_id} className="flex flex-col gap-4 rounded-[1.5rem] bg-[#fff9e8] p-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
+                      <div>
+                        <p className="font-['Plus_Jakarta_Sans'] text-2xl font-black tracking-[-0.04em] text-[#1f1b00]">{metric.title}</p>
+                        <p className="mt-1 font-['Be_Vietnam_Pro'] text-sm font-semibold text-[#5b4c2c]">{renderMetricSubtitle(metric)}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <ScoreBadge score={metric.accessibility_score} />
+                        <ScoreBadge score={metric.quiz_pass_rate} />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="rounded-[1.5rem] bg-[#fff9e8] px-5 py-4 font-['Be_Vietnam_Pro'] text-sm font-semibold leading-7 text-[#5b4c2c]">
+                  No lesson metrics yet for this learner. Complete a lesson and quiz to see progress here.
+                </p>
+              )}
             </div>
           </>
         ) : null}

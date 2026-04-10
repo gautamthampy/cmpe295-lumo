@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   GRADE2_CURRICULUM,
@@ -11,6 +11,11 @@ import { PARENT_INPUT_SCHEMA, type ParentInput } from "@/lib/story-studio/lesson
 
 interface ParentPromptFormProps {
   isLoading: boolean;
+  learners: Array<{
+    studentId: string;
+    displayName: string;
+    gradeLevel: number;
+  }>;
   onSubmit: (input: ParentInput) => void;
 }
 
@@ -25,17 +30,28 @@ const SUBJECT_OPTIONS: Array<{ value: SubjectId; label: string }> = [
   { value: "social_studies", label: "Social Studies" },
 ];
 
-export function ParentPromptForm({ isLoading, onSubmit }: ParentPromptFormProps) {
+export function ParentPromptForm({ isLoading, learners, onSubmit }: ParentPromptFormProps) {
   const [district, setDistrict] = useState<DistrictId>("SJUSD");
   const [subject, setSubject] = useState<SubjectId>("ela");
   const [curriculumCode, setCurriculumCode] = useState("SJUSD-G2-ELA-U1");
-  const [childName, setChildName] = useState("Ava");
+  const [childName, setChildName] = useState(learners[0]?.displayName ?? "Ava");
   const [childInterestsText, setChildInterestsText] = useState("animals, nature");
   const [textStyle, setTextStyle] = useState<ParentInput["textStyle"]>("balanced");
   const [notes, setNotes] = useState(
     "Needs visual examples before independent problem solving."
   );
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (learners.length === 0) {
+      return;
+    }
+
+    const hasCurrentLearner = learners.some((learner) => learner.displayName === childName);
+    if (!hasCurrentLearner) {
+      setChildName(learners[0]?.displayName ?? "Ava");
+    }
+  }, [childName, learners]);
 
   const curriculumOptions = useMemo(
     () =>
@@ -151,12 +167,26 @@ export function ParentPromptForm({ isLoading, onSubmit }: ParentPromptFormProps)
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-1 text-sm">
           <span className="font-label font-semibold text-on-surface">Child Name</span>
-          <input
-            value={childName}
-            onChange={(event) => setChildName(event.target.value)}
-            className="rounded-2xl border border-outline-variant bg-surface-container-low px-4 py-3 font-body font-semibold text-on-surface"
-            placeholder="Ava"
-          />
+          {learners.length > 0 ? (
+            <select
+              value={childName}
+              onChange={(event) => setChildName(event.target.value)}
+              className="rounded-2xl border border-outline-variant bg-surface-container-low px-4 py-3 font-body font-semibold text-on-surface"
+            >
+              {learners.map((learner) => (
+                <option key={learner.studentId} value={learner.displayName}>
+                  {learner.displayName} (Grade {learner.gradeLevel})
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              value={childName}
+              onChange={(event) => setChildName(event.target.value)}
+              className="rounded-2xl border border-outline-variant bg-surface-container-low px-4 py-3 font-body font-semibold text-on-surface"
+              placeholder="Ava"
+            />
+          )}
         </label>
 
         <label className="flex flex-col gap-1 text-sm">

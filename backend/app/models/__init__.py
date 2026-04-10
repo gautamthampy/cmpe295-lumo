@@ -1,6 +1,6 @@
 from app.models.attention import AttentionMetric
 from app.models.learner_mastery import LearnerMasteryScore
-from app.models.auth import AuthSession, EmailVerificationToken, ParentUser, PasswordResetToken, Student, StudentLoginCodeToken
+from app.models.auth import AuthSession, EmailVerificationToken, ParentUser, PasswordResetToken, Student, StudentCurriculumPreference, StudentLoginCodeToken
 from app.models.catalog import CurriculumLesson, CurriculumModule, CurriculumSubject
 from app.models.events import UserEvent
 from app.models.session import SessionModel
@@ -22,6 +22,7 @@ __all__ = [
 	"PasswordResetToken",
 	"SessionModel",
 	"Student",
+	"StudentCurriculumPreference",
 	"StudentLoginCodeToken",
 	"StudentSubject",
 	"Subject",

@@ -360,6 +360,41 @@ def test_student_login_code_rejects_invalid_or_reused_codes(client, db_session: 
     assert reused.status_code == 400
 
 
+def test_parent_can_configure_student_learning_plan(client, db_session: Session):
+    parent = create_verified_parent(client, db_session, email="learningplan@example.com")
+    student = create_student(db_session, parent, display_name="Maya", grade_level=2)
+
+    sign_in(client, email="learningplan@example.com")
+
+    initial = client.get(f"/api/v1/auth/students/{student.student_id}/learning-plan")
+    assert initial.status_code == 200
+    initial_payload = initial.json()
+    assert initial_payload["configured"] is False
+    assert initial_payload["subjects"]
+
+    first_subject = initial_payload["subjects"][0]
+    topic_options = first_subject.get("availableTopics") or first_subject.get("topics") or []
+    update_payload = {
+        "subjectSelections": [
+            {
+                "slug": first_subject["slug"],
+                "topics": topic_options[:1],
+            }
+        ]
+    }
+
+    updated = client.put(
+        f"/api/v1/auth/students/{student.student_id}/learning-plan",
+        json=update_payload,
+    )
+    assert updated.status_code == 200
+    updated_payload = updated.json()
+    assert updated_payload["configured"] is True
+    assert len(updated_payload["subjects"]) == 1
+    assert updated_payload["subjects"][0]["slug"] == first_subject["slug"]
+    assert updated_payload["subjects"][0]["topics"] == topic_options[:1]
+
+
 def test_parent_portal_can_generate_child_specific_student_login_code(client, db_session: Session):
     parent = create_verified_parent(client, db_session, email="portalcode@example.com")
     student = create_student(db_session, parent, display_name="Nina")
@@ -474,5 +509,6 @@ def test_student_session_returns_student_summary_for_valid_student_token(client,
             "display_name": "Maya",
             "grade_level": 4,
             "avatar_id": "owl",
+            "subjects": [],
         },
     }
