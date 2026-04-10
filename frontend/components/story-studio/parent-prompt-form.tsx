@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 
 import {
-  GRADE2_CURRICULUM,
+  getCurriculumByDistrictSubjectAndGrade,
+  type CurriculumGradeLevel,
   type DistrictId,
   type SubjectId,
 } from "@/lib/story-studio/kindergarten-curriculum";
@@ -33,7 +34,8 @@ const SUBJECT_OPTIONS: Array<{ value: SubjectId; label: string }> = [
 export function ParentPromptForm({ isLoading, learners, onSubmit }: ParentPromptFormProps) {
   const [district, setDistrict] = useState<DistrictId>("SJUSD");
   const [subject, setSubject] = useState<SubjectId>("ela");
-  const [curriculumCode, setCurriculumCode] = useState("SJUSD-G2-ELA-U1");
+  const [gradeLevel, setGradeLevel] = useState<CurriculumGradeLevel>(2);
+  const [curriculumCode, setCurriculumCode] = useState("SJUSD-G2-READ-LIT");
   const [childName, setChildName] = useState(learners[0]?.displayName ?? "Ava");
   const [childInterestsText, setChildInterestsText] = useState("animals, nature");
   const [textStyle, setTextStyle] = useState<ParentInput["textStyle"]>("balanced");
@@ -54,17 +56,16 @@ export function ParentPromptForm({ isLoading, learners, onSubmit }: ParentPrompt
   }, [childName, learners]);
 
   const curriculumOptions = useMemo(
-    () =>
-      GRADE2_CURRICULUM.filter(
-        (entry) => entry.district === district && entry.subject === subject
-      ),
-    [district, subject]
+    () => getCurriculumByDistrictSubjectAndGrade(district, subject, gradeLevel),
+    [district, subject, gradeLevel]
   );
 
-  function handleSubjectOrDistrictChange(nextDistrict: DistrictId, nextSubject: SubjectId) {
-    const options = GRADE2_CURRICULUM.filter(
-      (entry) => entry.district === nextDistrict && entry.subject === nextSubject
-    );
+  function handleSubjectOrDistrictChange(
+    nextDistrict: DistrictId,
+    nextSubject: SubjectId,
+    nextGrade: CurriculumGradeLevel
+  ) {
+    const options = getCurriculumByDistrictSubjectAndGrade(nextDistrict, nextSubject, nextGrade);
     setCurriculumCode(options[0]?.code ?? "");
   }
 
@@ -105,11 +106,28 @@ export function ParentPromptForm({ isLoading, learners, onSubmit }: ParentPrompt
         Plan one learner&apos;s story mission
       </h2>
       <p className="mt-2 font-body text-sm leading-7 text-on-surface-variant">
-        Pick a Grade 2 topic, add the learner&apos;s name and interests, and let LUMO turn that into a
-        short story plus a playable activity.
+        Pick a Grade 1, 2, or 3 topic, add the learner&apos;s name and interests, and let LUMO turn that
+        into a short story plus a playable activity.
       </p>
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="font-label font-semibold text-on-surface">Grade</span>
+          <select
+            value={gradeLevel}
+            onChange={(event) => {
+              const next = Number(event.target.value) as CurriculumGradeLevel;
+              setGradeLevel(next);
+              handleSubjectOrDistrictChange(district, subject, next);
+            }}
+            className="rounded-2xl border border-outline-variant bg-surface-container-low px-4 py-3 font-body font-semibold text-on-surface"
+          >
+            <option value={1}>Grade 1</option>
+            <option value={2}>Grade 2</option>
+            <option value={3}>Grade 3</option>
+          </select>
+        </label>
+
         <label className="flex flex-col gap-1 text-sm">
           <span className="font-label font-semibold text-on-surface">District</span>
           <select
@@ -117,7 +135,7 @@ export function ParentPromptForm({ isLoading, learners, onSubmit }: ParentPrompt
             onChange={(event) => {
               const next = event.target.value as DistrictId;
               setDistrict(next);
-              handleSubjectOrDistrictChange(next, subject);
+              handleSubjectOrDistrictChange(next, subject, gradeLevel);
             }}
             className="rounded-2xl border border-outline-variant bg-surface-container-low px-4 py-3 font-body font-semibold text-on-surface"
           >
@@ -136,7 +154,7 @@ export function ParentPromptForm({ isLoading, learners, onSubmit }: ParentPrompt
             onChange={(event) => {
               const next = event.target.value as SubjectId;
               setSubject(next);
-              handleSubjectOrDistrictChange(district, next);
+              handleSubjectOrDistrictChange(district, next, gradeLevel);
             }}
             className="rounded-2xl border border-outline-variant bg-surface-container-low px-4 py-3 font-body font-semibold text-on-surface"
           >
