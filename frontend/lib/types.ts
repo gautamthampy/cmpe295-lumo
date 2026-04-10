@@ -29,11 +29,6 @@ export interface AccessibilityIssue {
   message: string;
 }
 
-export interface AttentionHint {
-  peak_window_suggestion: boolean;
-  message: string;
-}
-
 export interface RenderedLessonResponse {
   lesson_id: string;
   html_content: string;
@@ -46,7 +41,6 @@ export interface RenderedLessonResponse {
   next_lesson_id: string | null;
   quiz_context: QuizContext;
   interactive_activities: InteractiveActivity[];
-  attention_hint?: AttentionHint;
 }
 
 // ---- Interactive Activities ----

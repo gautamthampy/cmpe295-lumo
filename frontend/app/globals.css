@@ -1,83 +1,238 @@
-@import url("https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=Manrope:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap");
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+   LUMO Design Tokens — "Sunny Classroom"
+   Warm, light, playful palette for elementary students.
+   ============================================================ */
 :root {
-  color-scheme: light;
+  --color-primary-light: #a89cf8;
+  --color-primary-base:  #7c6fea;
+  --color-primary-dark:  #5b4fc7;
+
+  --color-secondary-light: #9be8ff;
+  --color-secondary-base:  #4cc9f0;
+  --color-secondary-dark:  #2da8d0;
+
+  --color-accent-pink:   #ff7eb3;
+  --color-accent-gold:   #ffd166;
+  --color-accent-mint:   #6fdfaf;
+
+  --color-bg-cream:  #fefbf4;
+  --color-bg-dark:   #1a1730;
+
+  --background: var(--color-bg-cream);
+  --foreground: #2d2a3e;
+
+  --glass-bg:     rgba(255, 255, 255, 0.88);
+  --glass-border: rgba(255, 255, 255, 0.75);
+  --glass-shadow: rgba(124, 111, 234, 0.06);
+
+  --sidebar-bg:    #f0ecff;
+  --sidebar-active: #e2dbff;
 }
 
-html {
-  background: #fdf9f1;
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: var(--color-bg-dark);
+    --foreground: #f0eef8;
+    --glass-bg:     rgba(26, 23, 48, 0.85);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --glass-shadow: rgba(0, 0, 0, 0.25);
+    --sidebar-bg:   #231f3a;
+    --sidebar-active: #2e2952;
+  }
 }
 
+/* ============================================================
+   Base styles
+   ============================================================ */
 body {
-  min-height: 100vh;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: 'Outfit', sans-serif;
+  overflow-x: hidden;
+  position: relative;
+  font-size: 1.0625rem;
+  line-height: 1.7;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
   background:
-    radial-gradient(circle at top center, rgba(55, 97, 168, 0.07), transparent 36%),
-    linear-gradient(180deg, #fdf9f1 0%, #f9f4eb 100%);
-  color: #1c1c17;
-}
-
-a {
-  text-decoration: none;
-}
-
-::selection {
-  background: #d7e2ff;
-  color: #001a40;
-}
-
-.paper-noise {
-  position: relative;
-}
-
-.paper-noise::before {
-  content: "";
-  position: absolute;
-  inset: 0;
+    radial-gradient(ellipse at 8% 85%, rgba(255, 209, 102, 0.18) 0%, transparent 45%),
+    radial-gradient(ellipse at 90% 15%, rgba(76, 201, 240, 0.14) 0%, transparent 45%),
+    radial-gradient(ellipse at 50% 50%, rgba(255, 126, 179, 0.07) 0%, transparent 55%);
+  z-index: -1;
   pointer-events: none;
-  background-image: radial-gradient(rgba(28, 28, 23, 0.035) 0.6px, transparent 0.6px);
-  background-size: 22px 22px;
-  opacity: 0.15;
 }
 
-.glass-card {
-  position: relative;
+/* ============================================================
+   Card / Glass utilities (Tailwind v3 @layer)
+   ============================================================ */
+@layer components {
+  .glass {
+    background-color: var(--glass-bg);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 4px 24px 0 var(--glass-shadow);
+  }
+
+  .glass-panel {
+    @apply glass rounded-[1.75rem] p-6 transition-all duration-300;
+  }
+
+  .glass-card {
+    @apply rounded-[1.75rem] p-5 transition-all duration-300;
+    background: #fff;
+    border: 2px solid #f0ecff;
+    box-shadow: 0 4px 20px rgba(124, 111, 234, 0.07);
+  }
+  .glass-card:hover {
+    @apply -translate-y-1;
+    border-color: var(--color-primary-light);
+    box-shadow: 0 8px 28px rgba(124, 111, 234, 0.13);
+  }
+
+  .text-gradient {
+    background: linear-gradient(135deg, var(--color-primary-base) 0%, var(--color-accent-pink) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .btn-primary {
+    @apply px-7 py-3 font-bold text-base transition-all;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, var(--color-primary-base), var(--color-primary-dark));
+    color: white;
+    box-shadow: 0 4px 16px rgba(124, 111, 234, 0.30);
+  }
+  .btn-primary:hover {
+    @apply -translate-y-0.5;
+    box-shadow: 0 8px 24px rgba(124, 111, 234, 0.40);
+    background: linear-gradient(135deg, var(--color-primary-light), var(--color-primary-base));
+  }
+
+  .btn-secondary {
+    @apply px-6 py-3 font-bold text-base transition-all;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, var(--color-accent-gold), #ffe29d);
+    color: #5b4300;
+    box-shadow: 0 4px 14px rgba(255, 209, 102, 0.30);
+  }
+  .btn-secondary:hover {
+    @apply -translate-y-0.5;
+    box-shadow: 0 8px 24px rgba(255, 209, 102, 0.45);
+  }
+
+  .tag-pill {
+    @apply text-xs px-3 py-1 rounded-full font-semibold;
+    background: #f0ecff;
+    color: var(--color-primary-dark);
+  }
+}
+
+/* ============================================================
+   Animations
+   ============================================================ */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-8px); }
+}
+.animate-float {
+  animation: float 5s ease-in-out infinite;
+}
+
+@keyframes wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  25%       { transform: rotate(-3deg); }
+  75%       { transform: rotate(3deg); }
+}
+.animate-wiggle {
+  animation: wiggle 0.5s ease-in-out;
+}
+
+@keyframes bounce-in {
+  0%   { transform: scale(0.85); opacity: 0; }
+  60%  { transform: scale(1.06); opacity: 1; }
+  100% { transform: scale(1); }
+}
+.animate-bounce-in {
+  animation: bounce-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-up {
+  animation: fade-up 0.45s ease both;
+}
+
+@keyframes progress {
+  0%   { background-position: 0 0; }
+  100% { background-position: 1rem 0; }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+/* ============================================================
+   Scrollbar styling
+   ============================================================ */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(124, 111, 234, 0.18);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(124, 111, 234, 0.35);
+}
+
+/* ============================================================
+   Accessibility (WCAG 2.1)
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
   overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
 }
 
-.glass-card::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(140deg, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0));
-  opacity: 0.8;
+.focus\:not-sr-only:focus {
+  position: static;
+  width: auto;
+  height: auto;
+  padding: inherit;
+  margin: inherit;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
 }
 
-.lesson-prose h3,
-.lesson-prose h4 {
-  margin-bottom: 0.75rem;
-  font-family: "Plus Jakarta Sans", sans-serif;
-  font-size: 1.35rem;
-  font-weight: 800;
-  letter-spacing: -0.04em;
-  color: #1f1b00;
-}
-
-.lesson-prose p,
-.lesson-prose li {
-  font-family: "Be Vietnam Pro", sans-serif;
-}
-
-.lesson-prose ul,
-.lesson-prose ol {
-  margin: 0;
-  padding-left: 1.25rem;
-}
-
-.lesson-prose strong {
-  font-weight: 800;
+:focus-visible {
+  outline: 3px solid var(--color-primary-base);
+  outline-offset: 2px;
 }
