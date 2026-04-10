@@ -235,6 +235,118 @@
           }
         }
       ]
+    },
+    "attention_mini_test_started_event": {
+      "allOf": [
+        { "$ref": "#/definitions/base_event" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "attention_mini_test_started" },
+            "data": {
+              "type": "object",
+              "properties": {
+                "test_id": { "type": "string", "format": "uuid" },
+                "trigger": { "type": "string", "description": "e.g. session_start, drift_detected" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "attention_mini_test_completed_event": {
+      "allOf": [
+        { "$ref": "#/definitions/base_event" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "attention_mini_test_completed" },
+            "data": {
+              "type": "object",
+              "required": ["score"],
+              "properties": {
+                "score": { "type": "number", "minimum": 0, "maximum": 1 },
+                "test_id": { "type": "string", "format": "uuid" },
+                "correct_count": { "type": "integer", "minimum": 0 },
+                "total_questions": { "type": "integer", "minimum": 1 },
+                "time_taken_ms": { "type": "integer", "minimum": 0 }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "attention_self_report_event": {
+      "allOf": [
+        { "$ref": "#/definitions/base_event" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "attention_self_report" },
+            "data": {
+              "type": "object",
+              "required": ["focus_level"],
+              "properties": {
+                "focus_level": { "type": "number", "minimum": 0, "maximum": 1 },
+                "label": { "type": "string", "description": "Optional emoji or short label" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "gaze_attention_likelihood_event": {
+      "allOf": [
+        { "$ref": "#/definitions/base_event" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "gaze_attention_likelihood" },
+            "data": {
+              "type": "object",
+              "required": ["likelihood"],
+              "properties": {
+                "likelihood": { "type": "number", "minimum": 0, "maximum": 1, "description": "Scalar only; no raw video" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "break_accepted_event": {
+      "allOf": [
+        { "$ref": "#/definitions/base_event" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "break_accepted" },
+            "data": {
+              "type": "object",
+              "properties": {
+                "reason": { "type": "string" },
+                "duration_minutes": { "type": "integer", "minimum": 1, "maximum": 30 }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "break_declined_event": {
+      "allOf": [
+        { "$ref": "#/definitions/base_event" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "break_declined" },
+            "data": {
+              "type": "object",
+              "properties": {
+                "reason": { "type": "string" }
+              }
+            }
+          }
+        }
+      ]
     }
   },
   "oneOf": [
@@ -247,7 +359,13 @@
     { "$ref": "#/definitions/feedback_provided_event" },
     { "$ref": "#/definitions/attention_drift_detected_event" },
     { "$ref": "#/definitions/break_suggested_event" },
-    { "$ref": "#/definitions/re_quiz_triggered_event" }
+    { "$ref": "#/definitions/re_quiz_triggered_event" },
+    { "$ref": "#/definitions/attention_mini_test_started_event" },
+    { "$ref": "#/definitions/attention_mini_test_completed_event" },
+    { "$ref": "#/definitions/attention_self_report_event" },
+    { "$ref": "#/definitions/gaze_attention_likelihood_event" },
+    { "$ref": "#/definitions/break_accepted_event" },
+    { "$ref": "#/definitions/break_declined_event" }
   ]
 }
 

@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     DEBUG_AUTH_TOKENS: bool = False
 
     # Gemini
-    GEMINI_API_KEY: str = ""
+    GEMINI_API_KEY: str = "AIzaSyBZMjkBPEOnR1LOLptldJRuG46dSCkutfQ"
     GEMINI_MODEL: str = "gemini-flash-latest"
     GEMINI_MAX_TOKENS: int = 8192
     GEMINI_TEMPERATURE: float = 0.7
