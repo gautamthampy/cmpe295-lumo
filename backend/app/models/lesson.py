@@ -9,7 +9,7 @@ from app.core.database import Base
 
 class Lesson(Base):
     __tablename__ = "lessons"
-    __table_args__ = {"schema": "content"}
+    __table_args__ = {"schema": "content", "extend_existing": True}
 
     lesson_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title = Column(String(255), nullable=False)

@@ -1,0 +1,258 @@
+"""
+Feedback & Motivation Agent Service
+Handles tiered hint generation, error explanations, and motivational messages.
+Coordinates with GeminiService for LLM-based content and mocks other agent interactions.
+"""
+from typing import Dict, Any, Optional, List
+from sqlalchemy.orm import Session
+import time
+from app.services.gemini_service import get_gemini_service
+from app.services.socratic_hint_generator import socratic_hint_generator
+from app.services.tone_guardrails import tone_guardrails
+from app.models.subject import FeedbackLog
+import logging
+
+logger = logging.getLogger(__name__)
+
+class FeedbackAgent:
+    """
+    Feedback Agent responsible for:
+    1. Generating tiered hints (subtle -> moderate -> direct)
+    2. Providing explanations for incorrect answers
+    3. Generating motivational messages
+    4. Triggering re-quizzes (mocked)
+    """
+
+    def __init__(self):
+        self.gemini = get_gemini_service()
+
+    async def generate_hint(
+        self,
+        db: Session,
+        question_id: str,
+        question_text: str,
+        user_id: str,
+        session_id: str,
+        hint_level: int = 1,
+        misconception_type: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate a hint based on the question context and requested level.
+        
+        Args:
+            db: Database session
+            question_id: UUID or string of the question
+            question_text: Exact text of the question
+            user_id: UUID of the user
+            session_id: UUID of the session
+            hint_level: 1 (subtle), 2 (moderate), 3 (direct)
+            misconception_type: Optional detected misconception tag
+            
+        Returns:
+            Dict containing hint text and metadata
+        """
+        t0 = time.time()
+        
+        try:
+            if self.gemini.model:
+                # Use Socratic Hint Generator to build advanced prompt
+                prompt = socratic_hint_generator.generate_prompt_context(
+                    question_text=question_text,
+                    hint_level=hint_level,
+                    mastery_score=0.5,
+                    misconception_type=misconception_type
+                )
+                
+                hint_text = await self.gemini.generate_hint(
+                    question=prompt, 
+                    student_answer=None,
+                    hint_level=hint_level
+                )
+            else:
+                hint_text = self._get_mock_hint(question_text, hint_level)
+                
+            latency_ms = int((time.time() - t0) * 1000)
+
+            self._log_feedback_event(db, user_id, session_id, "hint_generated", {
+                "question_id": question_id,
+                "latency_ms": latency_ms,
+                "misconception_type": misconception_type
+            })
+
+            return {
+                "hint_text": hint_text,
+                "hint_level": hint_level,
+                "question_id": question_id,
+                "misconception_type": misconception_type
+            }
+
+        except Exception as e:
+            logger.error(f"Error generating hint: {e}")
+            return {
+                "hint_text": "Review the core concepts related to this question.",
+                "hint_level": hint_level,
+                "question_id": question_id,
+                "is_fallback": True
+            }
+
+    async def generate_explanation(
+        self,
+        db: Session,
+        question_id: str,
+        question_text: str,
+        user_answer: str,
+        correct_answer: str,
+        user_id: str,
+        session_id: Optional[str] = None,
+        misconception_type: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate an explanation for an incorrect answer containing:
+        - Why the user's answer might be wrong (addressing misconception)
+        - Why the correct answer is right
+        - A motivational nudge
+        """
+        t0 = time.time()
+        
+        try:
+            if self.gemini.model:
+                feedback_data = await self.gemini.generate_feedback(
+                    question=question_text,
+                    correct_answer=correct_answer,
+                    student_answer=user_answer,
+                    is_correct=False
+                )
+                
+                if isinstance(feedback_data, dict):
+                    explanation = feedback_data.get("explanation", "Review the concept.")
+                    motivation = feedback_data.get("motivation", "Keep going!")
+                else:
+                    explanation = str(feedback_data)
+                    motivation = "Keep going! You're learning."
+                    
+                # Apply Tone Guardrails
+                explanation = tone_guardrails.sanitize_explanation(explanation, correct_answer)
+                motivation = tone_guardrails.sanitize_motivation(motivation)
+                
+            else:
+                explanation = f"The correct answer is {correct_answer}. Your answer {user_answer} was incorrect."
+                motivation = "Don't give up! Mistakes help us learn."
+                
+            latency_ms = int((time.time() - t0) * 1000)
+
+            self._log_feedback_event(db, user_id, session_id, "explanation_generated", {
+                "question_id": question_id,
+                "latency_ms": latency_ms,
+                "misconception_type": misconception_type
+            })
+
+            return {
+                "explanation": explanation,
+                "motivational_message": motivation,
+                "question_id": question_id
+            }
+
+        except Exception as e:
+            logger.error(f"Error generating explanation: {e}")
+            return {
+                "explanation": f"The correct answer is {correct_answer}.",
+                "motivational_message": "Keep trying!",
+                "is_fallback": True
+            }
+
+    async def generate_motivation(
+        self,
+        db: Session,
+        user_id: str,
+        session_id: Optional[str] = None,
+        error_count: int = 1,
+        question_context: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Generate a standalone motivational message after repeated errors.
+        
+        Args:
+            db: Database session
+            user_id: UUID of the user
+            session_id: Optional session UUID
+            error_count: Number of recent incorrect answers
+            question_context: Optional topic/subject string
+            
+        Returns:
+            Dict containing motivational message and metadata
+        """
+        t0 = time.time()
+
+        try:
+            message = await self.gemini.generate_motivation(
+                error_count=error_count,
+                question_context=question_context,
+            )
+
+            # Apply tone guardrails
+            message = tone_guardrails.sanitize_motivation(message)
+
+            latency_ms = int((time.time() - t0) * 1000)
+
+            self._log_feedback_event(db, user_id, session_id, "motivation_generated", {
+                "question_id": "n/a",
+                "latency_ms": latency_ms,
+            })
+
+            return {
+                "message": message,
+                "error_count": error_count,
+            }
+
+        except Exception as e:
+            logger.error(f"Error generating motivation: {e}")
+            return {
+                "message": "Every mistake helps you grow. Keep going!",
+                "error_count": error_count,
+                "is_fallback": True,
+            }
+
+    async def trigger_re_quiz(self, quiz_id: str, user_id: str) -> Dict[str, Any]:
+        """
+        Determine if a re-quiz is needed based on performance (Mocked).
+        """
+        return {
+            "re_quiz_triggered": True,
+            "reason": "mastery_gap_detected",
+            "suggested_quiz_params": {
+                "topic": "previous_topic",
+                "difficulty": "easier"
+            }
+        }
+
+    def _get_mock_hint(self, question_text: str, level: int) -> str:
+        """Fallback mock hints if LLM is unavailable"""
+        hints = {
+            1: "Think about energy production in the cell.",
+            2: "It's often called the powerhouse of the cell.",
+            3: "It produces ATP (Adenosine Triphosphate)."
+        }
+        return hints.get(level, "Think about the question carefully.")
+
+    def _log_feedback_event(self, db: Session, user_id: str, session_id: Optional[str], event_type: str, data: Dict[str, Any]):
+        """Persist event to Analytics Database"""
+        try:
+            log = FeedbackLog(
+                user_id=user_id,
+                session_id=session_id,
+                question_id=data.get("question_id"),
+                feedback_type=event_type,
+                latency_ms=data.get("latency_ms"),
+                llm_model=self.gemini.model_name if self.gemini else "unknown",
+                misconception_type=data.get("misconception_type")
+            )
+            db.add(log)
+            db.commit()
+            logger.info(f"[Analytics Event Logged] User: {user_id}, Type: {event_type}")
+        except Exception as e:
+            logger.error(f"Failed to log feedback event: {e}")
+            db.rollback()
+
+# Global instance
+feedback_agent = FeedbackAgent()
+
