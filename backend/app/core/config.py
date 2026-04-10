@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-3.1-pro-preview"
     GEMINI_MAX_TOKENS: int = 8192
     GEMINI_TEMPERATURE: float = 0.7
+    # LLM provider routing (Ollama = local, no Google API key)
+    LLM_PROVIDER: str = "ollama"  # gemini | ollama
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "llama3.1:8b"
 
     # Privacy
     DATA_RETENTION_DAYS: int = 90
@@ -71,7 +75,7 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     MAIL_FROM_EMAIL: str = "no-reply@lumo.local"
     MAIL_FROM_NAME: str = "LUMO"
-    MAIL_DELIVERY_MODE: str = "console"
+    MAIL_DELIVERY_MODE: str = "log"  # log = print to server logs; smtp = real send
 
     # LLM (Google Gemini API)
     #GEMINI_API_KEY: str = ""

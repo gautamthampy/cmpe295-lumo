@@ -84,6 +84,8 @@ class Student(Base):
 
     parent_user: Mapped[ParentUser] = relationship(back_populates="students")
     login_codes: Mapped[list[StudentLoginCodeToken]] = relationship(back_populates="student")
+    # Relationship used by content.student_subjects join model.
+    enrolled_subjects = relationship("StudentSubject", back_populates="student", cascade="all, delete-orphan")
 
 
 class StudentLoginCodeToken(Base):

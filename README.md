@@ -75,7 +75,7 @@ The system is designed for **parent-supervised learning**, where parents create 
 ## Multi-Agent System
 
 ### 1. Planner Agent (`services/planner_service.py`)
-The **orchestrator**. Aggregates signals from attention, feedback, and analytics subsystems to recommend the student's next-best-action (continue, review, break, switch to interactive).
+The **orchestrator**. Aggregates signals from attention, feedback, and analytics subsystems to recommend the student's next-best-action (continue, review, break, switch to interactive). The HTTP API is `GET /api/v1/planner/recommend/{student_id}`; the student **Learn** dashboard (`/learn`) loads suggestions for the signed-in learner when their account id is a UUID (same id as in the JWT `sub` claim).
 
 ### 2. Lesson Designer Agent (`services/generation/`)
 Generates age-appropriate, accessible lesson content using four pluggable strategies:
@@ -115,7 +115,7 @@ Parent-initiated assessments that probe student misconceptions:
 | **Backend** | Python 3.11+, FastAPI, SQLAlchemy, Pydantic v2 |
 | **Database** | PostgreSQL (5 schemas: `iam`, `learner`, `content`, `events`, `catalog`) |
 | **Cache** | Redis (attention drift state, feature windows) |
-| **AI** | Google Gemini 2.0 Flash (with mock fallback) |
+| **AI** | Gemini or local Ollama (configurable) |
 | **Auth** | JWT (bcrypt password hashing, PIN-based student login) |
 | **Email** | SMTP with configurable log/smtp delivery modes |
 | **Eval** | Custom rubric-based evaluation pipeline |
@@ -188,7 +188,7 @@ cmpe295-lumo/
 - Node.js 18+
 - PostgreSQL 14+
 - Redis 7+
-- Google Gemini API key (optional — mock fallback available)
+- Optional Gemini API key, or local Ollama runtime
 
 ### Backend Setup
 
@@ -204,7 +204,7 @@ pip install -r requirements.txt
 
 # Configure environment
 cp .env.example .env
-# Edit .env with your database URL, Redis URL, and optional Gemini API key
+# Edit .env with your database URL, Redis URL, and LLM settings (Gemini or Ollama)
 
 # Run database migrations
 alembic upgrade head
@@ -235,7 +235,12 @@ npm run dev
 |----------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql://lumo:lumo@localhost:5432/lumo` |
 | `REDIS_URL` | Redis connection string | `redis://localhost:6379/0` |
-| `GEMINI_API_KEY` | Google Gemini API key (optional) | — |
+| `LLM_PROVIDER` | LLM backend: `gemini` or `ollama` | `ollama` |
+| `GEMINI_API_KEY` | Google Gemini API key (when provider is `gemini`) | — |
+| `OLLAMA_BASE_URL` | Local Ollama API URL | `http://localhost:11434` |
+| `OLLAMA_MODEL` | Ollama model name/tag | `llama3.1:8b` |
+
+**Frontend Story Studio** (Next.js API routes under `/api/story-studio/`): set the same `LLM_PROVIDER`, `OLLAMA_BASE_URL`, and `OLLAMA_MODEL` in `frontend/.env.local` (defaults match local Ollama). Use `LLM_PROVIDER=gemini` and `GEMINI_API_KEY` only when you want Google for story generation, images, or TTS. With Ollama, scene images use placeholders and narration uses browser speech.
 | `JWT_SECRET` | Secret key for JWT token signing | `changeme` |
 | `AUTO_CREATE_TABLES` | Auto-create DB tables on startup | `true` |
 | `ENABLE_GAZE_TELEMETRY` | Enable gaze tracking events | `false` |
@@ -261,7 +266,7 @@ All endpoints are served under `/api/v1`.
 |--------|------|-------------|
 | GET | `/lessons` | List all lessons (filter by subject, grade) |
 | GET | `/lessons/{id}/render` | Render a lesson with activities |
-| POST | `/lessons/{id}/quiz` | Generate a quiz (Gemini or mock) |
+| POST | `/lessons/{id}/quiz` | Generate a quiz (LLM or mock) |
 | GET | `/lessons/analytics/summary` | Lesson analytics summary |
 | POST | `/lessons/events` | Log a lesson event |
 

@@ -100,8 +100,8 @@ class SubjectService:
         if seeded:
             return seeded
 
-        # Fall back to AI generation if Gemini is available
-        if self.gemini and self.gemini._client:
+        # Fall back to AI generation if an LLM is configured (Gemini or Ollama)
+        if self.gemini and self.gemini.model:
             return await self._generate_taxonomy_via_llm(subject, grade_level)
 
         return []
