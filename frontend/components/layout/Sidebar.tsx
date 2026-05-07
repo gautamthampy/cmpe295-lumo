@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 
 const navItems = [
   { href: '/',                     label: 'Dashboard',     icon: '🏠', color: 'from-violet-400 to-purple-300' },
-  { href: '/dashboard/attention',   label: 'Focus',         icon: '📈', color: 'from-emerald-400 to-teal-300' },
+  { href: '/dashboard/attention',   label: 'Focus & Attention', icon: '📈', color: 'from-emerald-400 to-teal-300' },
   { href: '/students',         label: 'My Students',   icon: '👶', color: 'from-emerald-400 to-teal-300' },
   { href: '/lessons',              label: 'Lessons',       icon: '📚', color: 'from-sky-400 to-cyan-300' },
   { href: '/lessons/editor',       label: 'Lesson Editor', icon: '✨', color: 'from-amber-300 to-yellow-200' },

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AuthCard, AuthTopBar } from "@/components/auth/auth-shell";
+import ParentStudentAttentionBlock from "@/components/attention/ParentStudentAttentionBlock";
 import { ParentStudentCodeButton } from "@/components/auth/parent-student-code-button";
 import { StudentProfileCreator } from "@/components/auth/student-profile-creator";
 import { authRoutes, type ParentDashboardPayload, type SessionPayload } from "@/lib/auth";
@@ -120,6 +121,7 @@ export default async function StudentsPage() {
                     <span className="rounded-full bg-primary-fixed px-3 py-1 font-label text-xs font-bold uppercase tracking-[0.2em] text-primary">{student.avatar_id}</span>
                   </div>
                   <ParentStudentCodeButton studentId={student.student_id} studentName={student.display_name} />
+                  <ParentStudentAttentionBlock studentId={student.student_id} studentName={student.display_name} />
                 </AuthCard>
               ))}
               </div>

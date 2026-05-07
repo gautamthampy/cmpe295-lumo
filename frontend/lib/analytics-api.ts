@@ -69,6 +69,14 @@ export type EventPayload = {
   data: Record<string, unknown>;
 };
 
+/** Response body from POST /analytics/events when event_type is question_answered (HTTP 202). */
+export type QuestionAnsweredIngestResponse = {
+  attention_score?: number;
+  drift?: boolean;
+  recommended_action?: string;
+  rationale?: string;
+};
+
 export type SessionCreateResponse = {
   session_id: string;
   user_id: string;
@@ -99,7 +107,9 @@ export async function endLearningSession(sessionId: string): Promise<SessionCrea
 
 // ---- Analytics Event Ingestion ----
 
-export async function ingestAnalyticsEvent(event: EventPayload): Promise<Record<string, unknown>> {
+export async function ingestAnalyticsEvent(
+  event: EventPayload,
+): Promise<Record<string, unknown>> {
   return authRequest<Record<string, unknown>>("/analytics/events", {
     method: "POST",
     body: JSON.stringify(event),

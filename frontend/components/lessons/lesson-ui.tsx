@@ -4,7 +4,7 @@ import { Bell, BookOpen, ChevronLeft, ChevronRight, CircleUserRound, Grid2x2, He
 import { clsx } from "clsx";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type MutableRefObject, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { FeedbackModal } from "@/components/feedback/FeedbackModal";
 import { GeneratedMissionCallout } from "@/components/story-studio/generated-mission-callout";
@@ -14,8 +14,12 @@ import SelfReportPanel from "@/components/attention/SelfReportPanel";
 import {
   type AttentionDailySummary,
   type DashboardResponse,
+  type QuestionAnsweredIngestResponse,
+  createLearningSession,
+  endLearningSession,
   fetchAttentionSummary,
   fetchDashboard,
+  ingestAnalyticsEvent,
 } from "@/lib/analytics-api";
 import {
   type LessonActivity,
@@ -35,8 +39,9 @@ import {
   getFallbackLessonRender,
   logLessonEvent,
 } from "@/lib/lessons";
+import { useAuthStore } from "@/lib/store/auth";
 
-type NavSection = "learn" | "library" | "analytics";
+type NavSection = "learn" | "library" | "analytics" | "attention";
 
 type ParsedSectionNode =
   | {
@@ -204,6 +209,7 @@ function LessonTopBar({ active }: { active: NavSection }) {
     { href: "/learn", label: "My Lessons", key: "learn" },
     { href: "/lessons", label: "Library", key: "library" },
     { href: "/lessons/analytics", label: "Achievements", key: "analytics" },
+    { href: "/dashboard/attention", label: "Focus", key: "attention" },
   ];
 
   return (
@@ -1051,7 +1057,62 @@ function buildQuizScore(quiz: LessonQuizPayload, answers: Record<string, string>
   return correct;
 }
 
+function QuizQuestionMountTracker({
+  questionId,
+  startedRef,
+}: {
+  questionId: string;
+  startedRef: MutableRefObject<Record<string, number>>;
+}) {
+  useEffect(() => {
+    if (startedRef.current[questionId] == null) {
+      startedRef.current[questionId] = Date.now();
+    }
+  }, [questionId, startedRef]);
+  return null;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isUuid(value: string | undefined): value is string {
+  return typeof value === "string" && UUID_RE.test(value);
+}
+
+function newQuizRunUuid(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
+  const searchParams = useSearchParams();
+  const storeUserId = useAuthStore((s) => s.userId);
+  const queryStudentId = searchParams.get("student_id");
+  const effectiveUserId = queryStudentId ?? storeUserId ?? undefined;
+  const logWithUser = useCallback(
+    (body: Record<string, unknown>) => {
+      void logLessonEvent({
+        ...body,
+        ...(effectiveUserId ? { user_id: effectiveUserId } : {}),
+      });
+    },
+    [effectiveUserId],
+  );
+
+  const [analyticsSessionId, setAnalyticsSessionId] = useState<string | null>(null);
+  const [quizRunId, setQuizRunId] = useState<string | null>(null);
+  const lessonOpenedAtRef = useRef<number | null>(null);
+  const quizStartedAtRef = useRef<number | null>(null);
+  const quizStartedIngestKeyRef = useRef<string | null>(null);
+  const questionStartedAtRef = useRef<Record<string, number>>({});
+  const answerSelectedAtRef = useRef<Record<string, number>>({});
+
+  const [driftBanner, setDriftBanner] = useState<{ action: string; rationale: string } | null>(null);
   const [lesson, setLesson] = useState<LessonRenderPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1124,6 +1185,152 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
     showFeedback("Keep Going! 🌟", result.message, { isMotivation: true });
   }, [showFeedback]);
 
+  const logBreakDecision = useCallback(
+    async (eventType: "break_accepted" | "break_declined") => {
+      if (!analyticsSessionId || !effectiveUserId || !isUuid(effectiveUserId)) return;
+      await ingestAnalyticsEvent({
+        event_type: eventType,
+        timestamp: new Date().toISOString(),
+        user_id: effectiveUserId,
+        session_id: analyticsSessionId,
+        data: { reason: "lesson_viewer_drift_banner" },
+      }).catch(() => {});
+      setDriftBanner(null);
+    },
+    [analyticsSessionId, effectiveUserId],
+  );
+
+  const handleQuizSubmit = useCallback(async () => {
+    if (!quiz || !lesson) return;
+    setQuizSubmitted(true);
+    const score = buildQuizScore(quiz, quizAnswers);
+    const total = quiz.questions.length;
+    const sessionPayload =
+      analyticsSessionId && isUuid(effectiveUserId)
+        ? { session_id: analyticsSessionId }
+        : {};
+
+    logWithUser({
+      event: "quiz_submit",
+      lesson_id: lesson.lesson_id,
+      answers: quizAnswers,
+      quiz_score: score,
+      quiz_total: total,
+      ...sessionPayload,
+    });
+    logWithUser({
+      event: "quiz_completed",
+      lesson_id: lesson.lesson_id,
+      quiz_score: score,
+      quiz_total: total,
+      ...sessionPayload,
+    });
+
+    if (
+      analyticsSessionId &&
+      effectiveUserId &&
+      isUuid(effectiveUserId) &&
+      quizRunId &&
+      isUuid(quizRunId)
+    ) {
+      const submitAt = Date.now();
+      const elapsedMs =
+        quizStartedAtRef.current !== null
+          ? Math.max(1, submitAt - quizStartedAtRef.current)
+          : total * 2000;
+      const lessonMs = Math.max(1, submitAt - (lessonOpenedAtRef.current ?? submitAt));
+      const orderedIds = quiz.questions.map((qu) => qu.question_id);
+
+      for (let i = 0; i < quiz.questions.length; i++) {
+        const qu = quiz.questions[i]!;
+        const selectedAt = answerSelectedAtRef.current[qu.question_id] ?? submitAt;
+        const startedAt = questionStartedAtRef.current[qu.question_id] ?? quizStartedAtRef.current ?? submitAt;
+        const responseLatencyMs = Math.max(1, selectedAt - startedAt);
+        let idleMs = 0;
+        if (i === 0) {
+          idleMs = Math.max(0, selectedAt - (quizStartedAtRef.current ?? selectedAt));
+        } else {
+          const prevId = orderedIds[i - 1]!;
+          const prevAt = answerSelectedAtRef.current[prevId] ?? quizStartedAtRef.current ?? selectedAt;
+          idleMs = Math.max(0, selectedAt - prevAt);
+        }
+        const correctOption = qu.options.find((opt) => !opt.is_distractor);
+        const isCorrect = !!(correctOption && quizAnswers[qu.question_id] === correctOption.option_id);
+        const chosen = qu.options.find((opt) => opt.option_id === quizAnswers[qu.question_id]);
+        try {
+          const raw = await ingestAnalyticsEvent({
+            event_type: "question_answered",
+            timestamp: new Date().toISOString(),
+            user_id: effectiveUserId,
+            session_id: analyticsSessionId,
+            data: {
+              question_id: qu.question_id,
+              answer: quizAnswers[qu.question_id] ?? "",
+              is_correct: isCorrect,
+              response_latency_ms: responseLatencyMs,
+              idle_ms: idleMs,
+              lesson_id: lesson.lesson_id,
+              misconception_type: chosen?.misconception_type ?? null,
+            },
+          });
+          const res = raw as QuestionAnsweredIngestResponse;
+          if (res.drift === true) {
+            setDriftBanner({
+              action: String(res.recommended_action ?? "continue"),
+              rationale: String(res.rationale ?? ""),
+            });
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
+      await ingestAnalyticsEvent({
+        event_type: "quiz_completed",
+        timestamp: new Date().toISOString(),
+        user_id: effectiveUserId,
+        session_id: analyticsSessionId,
+        data: {
+          quiz_id: quizRunId,
+          score,
+          total_questions: total,
+          time_spent_ms: elapsedMs,
+          lesson_id: lesson.lesson_id,
+          difficulty_band:
+            total > 0 && score / total >= 0.8
+              ? "hard"
+              : total > 0 && score / total <= 0.4
+                ? "easy"
+                : "medium",
+        },
+      }).catch(() => {});
+
+      await ingestAnalyticsEvent({
+        event_type: "lesson_completed",
+        timestamp: new Date().toISOString(),
+        user_id: effectiveUserId,
+        session_id: analyticsSessionId,
+        data: {
+          lesson_id: lesson.lesson_id,
+          time_spent_ms: lessonMs,
+        },
+      }).catch(() => {});
+    }
+
+    if (total > 0 && score / total < 0.5) {
+      void handleMotivationNudge(total - score, lesson.quiz_context.subject);
+    }
+  }, [
+    quiz,
+    quizAnswers,
+    lesson,
+    analyticsSessionId,
+    effectiveUserId,
+    quizRunId,
+    logWithUser,
+    handleMotivationNudge,
+  ]);
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -1173,6 +1380,13 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
     setQuiz(null);
     setQuizAnswers({});
     setQuizSubmitted(false);
+    quizStartedAtRef.current = null;
+    quizStartedIngestKeyRef.current = null;
+    questionStartedAtRef.current = {};
+    answerSelectedAtRef.current = {};
+    setQuizRunId(null);
+    lessonOpenedAtRef.current = null;
+    setDriftBanner(null);
   }, [lessonId]);
 
   useEffect(() => {
@@ -1180,6 +1394,10 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
       setCurrentSection(sections.length - 1);
     }
   }, [currentSection, sections.length]);
+
+  useEffect(() => {
+    setDriftBanner(null);
+  }, [currentSection]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1338,6 +1556,68 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
           <SectionNavigation sections={sections} currentSection={currentSection} onSelect={setCurrentSection} />
 
           <article className={clsx("space-y-6", fontClass)}>
+            {driftBanner ? (
+              <div
+                role="alert"
+                className="rounded-[2rem] border-2 border-amber-200 bg-[#fff8e8] px-5 py-4 shadow-[0_12px_32px_rgba(126,87,0,0.12)]"
+              >
+                <p className="font-['Plus_Jakarta_Sans'] text-sm font-black text-[#7e5700]">Focus check-in</p>
+                {driftBanner.action === "recap" ? (
+                  <p className="mt-2 font-['Be_Vietnam_Pro'] text-sm leading-7 text-[#5b4c2c]">
+                    Looks like focus has dipped — want a quick recap before the next section?
+                  </p>
+                ) : driftBanner.action === "break" ? (
+                  <p className="mt-2 font-['Be_Vietnam_Pro'] text-sm leading-7 text-[#5b4c2c]">
+                    You&apos;ve been working hard — a short break will help you come back stronger.
+                  </p>
+                ) : (
+                  <p className="mt-2 font-['Be_Vietnam_Pro'] text-sm leading-7 text-[#5b4c2c]">
+                    {driftBanner.rationale || "Take a breath — steady pacing helps learning stick."}
+                  </p>
+                )}
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {driftBanner.action === "recap" ? (
+                    <button
+                      type="button"
+                      className="rounded-full bg-[#8a5d00] px-4 py-2 font-['Plus_Jakarta_Sans'] text-xs font-black text-white"
+                      onClick={() => {
+                        setCurrentSection(0);
+                        setDriftBanner(null);
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                    >
+                      Take a Recap
+                    </button>
+                  ) : null}
+                  {driftBanner.action === "break" ? (
+                    <>
+                      <button
+                        type="button"
+                        className="rounded-full bg-amber-500 px-4 py-2 font-['Plus_Jakarta_Sans'] text-xs font-black text-white"
+                        onClick={() => void logBreakDecision("break_accepted")}
+                      >
+                        Take a Break
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-full bg-white px-4 py-2 font-['Plus_Jakarta_Sans'] text-xs font-black text-[#8a5d00] ring-2 ring-[#ffba38]"
+                        onClick={() => void logBreakDecision("break_declined")}
+                      >
+                        Keep Going
+                      </button>
+                    </>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="rounded-full bg-white/90 px-4 py-2 font-['Plus_Jakarta_Sans'] text-xs font-black text-[#5b4c2c] ring-1 ring-[#e8dfc8]"
+                    onClick={() => setDriftBanner(null)}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
             <div className="rounded-[2rem] bg-white/84 p-6 shadow-[0_18px_36px_rgba(60,53,18,0.12)]">
               <h2 className="font-['Plus_Jakarta_Sans'] text-3xl font-black tracking-[-0.05em] text-[#1f1b00]">{sections[currentSection]?.title ?? "Adventure Start"}</h2>
               <div className="mt-5">
@@ -1382,6 +1662,8 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
                     setQuiz(generatedQuiz);
                     setQuizAnswers({});
                     setQuizSubmitted(false);
+                    questionStartedAtRef.current = {};
+                    answerSelectedAtRef.current = {};
                     setQuizPending(false);
                   }}
                   className="inline-flex items-center gap-2 rounded-full bg-[#cae6ff] px-5 py-3 font-['Plus_Jakarta_Sans'] text-sm font-black text-[#004b70]"
@@ -1403,6 +1685,7 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
                     return (
                       <fieldset key={question.question_id} className="rounded-[1.5rem] bg-[#fff9e8] p-5 shadow-sm">
                         <legend className="font-['Plus_Jakarta_Sans'] text-lg font-black text-[#1f1b00]">{questionIndex + 1}. {question.question_text}</legend>
+                        <QuizQuestionMountTracker questionId={question.question_id} startedRef={questionStartedAtRef} />
                         <div className="mt-4 space-y-3">
                           {question.options.map((option) => {
                             const selected = selectedOptionId === option.option_id;
@@ -1424,7 +1707,10 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
                                   value={option.option_id}
                                   checked={selected}
                                   disabled={quizSubmitted}
-                                  onChange={() => setQuizAnswers((current) => ({ ...current, [question.question_id]: option.option_id }))}
+                                  onChange={() => {
+                                    answerSelectedAtRef.current[question.question_id] = Date.now();
+                                    setQuizAnswers((current) => ({ ...current, [question.question_id]: option.option_id }));
+                                  }}
                                 />
                                 <span>{option.option_text}</span>
                               </label>
@@ -1469,22 +1755,20 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
                   <button
                     type="button"
                     disabled={!answeredAllQuestions || quizSubmitted}
-                    onClick={() => {
-                      setQuizSubmitted(true);
-                      void logLessonEvent({ event: "quiz_submit", lesson_id: lesson.lesson_id, answers: quizAnswers });
-                      // Check score and trigger motivational nudge for low scores
-                      const score = buildQuizScore(quiz, quizAnswers);
-                      const total = quiz.questions.length;
-                      if (total > 0 && score / total < 0.5) {
-                        void handleMotivationNudge(total - score, lesson.quiz_context.subject);
-                      }
-                    }}
+                    onClick={() => void handleQuizSubmit()}
                     className="rounded-full bg-[#8a5d00] px-5 py-3 font-['Plus_Jakarta_Sans'] text-sm font-black text-white disabled:opacity-40"
                   >
                     Submit Quiz
                   </button>
 
                   {quizSubmitted ? <QuizResultCard score={currentQuizScore} total={quiz.questions.length} /> : null}
+                </div>
+              ) : null}
+
+              {effectiveUserId && isUuid(effectiveUserId) && analyticsSessionId ? (
+                <div className="mt-8 grid gap-5 md:grid-cols-2">
+                  <MiniTestPanel userId={effectiveUserId} sessionId={analyticsSessionId} />
+                  <SelfReportPanel userId={effectiveUserId} sessionId={analyticsSessionId} />
                 </div>
               ) : null}
             </section>

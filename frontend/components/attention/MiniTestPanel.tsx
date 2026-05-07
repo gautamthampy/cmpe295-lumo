@@ -11,7 +11,14 @@ const QUESTIONS = [
 
 type Phase = 'idle' | 'running' | 'done';
 
-export default function MiniTestPanel({ userId }: { userId: string }) {
+export default function MiniTestPanel({
+  userId,
+  sessionId: externalSessionId,
+}: {
+  userId: string;
+  /** When set (e.g. lesson analytics session), skip creating a new session. */
+  sessionId?: string | null;
+}) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [step, setStep] = useState(0);
@@ -24,8 +31,13 @@ export default function MiniTestPanel({ userId }: { userId: string }) {
     setBusy(true);
     setResultMsg(null);
     try {
-      const res = await sessionsAPI.create(userId);
-      const sid = res.data.session_id as string;
+      let sid: string;
+      if (externalSessionId) {
+        sid = externalSessionId;
+      } else {
+        const res = await sessionsAPI.create(userId);
+        sid = res.data.session_id as string;
+      }
       setSessionId(sid);
       await analyticsAPI.ingestEvent({
         event_type: 'attention_mini_test_started',

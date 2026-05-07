@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AxiosResponse } from 'axios';
 import { analyticsAPI, sessionsAPI } from '@/lib/api';
+import { useAuthStore } from '@/lib/store/auth';
 
 interface AgentMessage {
   id: string;
@@ -70,8 +71,15 @@ type PresenceStatus = 'idle' | 'checking' | 'done' | 'error';
 const IDLE_THRESHOLD_MS = 30_000;
 
 export default function AgentPanel() {
+  const authUserId = useAuthStore((s) => s.userId);
   const [collapsed, setCollapsed] = useState(false);
-  const [userId, setUserId] = useState(DEFAULT_USER_ID);
+  const [userId, setUserId] = useState(authUserId ?? DEFAULT_USER_ID);
+
+  useEffect(() => {
+    if (authUserId) {
+      setUserId(authUserId);
+    }
+  }, [authUserId]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [attention, setAttention] = useState<AttentionSummary | null>(null);
   const [attnLoading, setAttnLoading] = useState(false);
