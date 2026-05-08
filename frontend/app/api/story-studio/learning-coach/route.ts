@@ -7,6 +7,8 @@ import {
   withInFlightDedup,
   writeJsonCache,
 } from "@/lib/story-studio/server/gemini-cache";
+import { getServerLlmProvider, ollamaGenerateText } from "@/lib/story-studio/server/llm-provider";
+import { redactPii } from "@/lib/story-studio/server/pii-redaction";
 
 export const runtime = "nodejs";
 
@@ -50,13 +52,13 @@ function extractJsonObject(raw: string): string | null {
 
 function buildPrompt(params: z.infer<typeof REQUEST_SCHEMA>) {
   return JSON.stringify({
-    childName: params.lesson.childName,
+    childName: redactPii(params.lesson.childName),
     gradeLevel: params.lesson.gradeLevel,
     unit: params.lesson.unitOrModule,
     subject: params.lesson.subject,
     concept: params.lesson.conceptFamily,
     mode: params.mode,
-    studentMessage: params.studentMessage,
+    studentMessage: redactPii(params.studentMessage),
     rules: {
       doNotGiveFinalAnswer: true,
       keepVocabularyYoung: true,
@@ -70,6 +72,7 @@ function buildOfflineCoach(
   studentMessage: string,
   childName: string
 ): z.infer<typeof RESPONSE_SCHEMA> {
+  const safeChildName = redactPii(childName);
   const lower = studentMessage.toLowerCase();
   const asksForAnswer =
     lower.includes("answer") ||
@@ -79,7 +82,7 @@ function buildOfflineCoach(
 
   if (asksForAnswer) {
     return {
-      coachReply: `I will not give the final answer, ${childName}, but I can help you think it through one clue at a time.`,
+      coachReply: `I will not give the final answer, ${safeChildName}, but I can help you think it through one clue at a time.`,
       nextStep: "Underline two key words in the question and tell what each word is asking you to find.",
       reflectionQuestion: "Which clue in the question gives you the strongest hint?",
       blockedDirectAnswer: true,
@@ -88,7 +91,7 @@ function buildOfflineCoach(
   }
 
   return {
-    coachReply: `Great effort, ${childName}. Let's solve this by steps so your brain does the hard work.`,
+    coachReply: `Great effort, ${safeChildName}. Let's solve this by steps so your brain does the hard work.`,
     nextStep: "Say what you already know, then choose one tiny step you can test right now.",
     reflectionQuestion: "After that step, what changed and what does it tell you?",
     blockedDirectAnswer: false,
@@ -109,10 +112,13 @@ export async function POST(request: Request) {
   }
 
   const params = parsedRequest.data;
-  const model = process.env.GEMINI_COACH_MODEL ?? process.env.GEMINI_MODEL ?? "gemini-3-flash-preview";
+  const provider = getServerLlmProvider();
+  const geminiModel = process.env.GEMINI_COACH_MODEL ?? process.env.GEMINI_MODEL ?? "gemini-3-flash-preview";
+  const ollamaModel = process.env.OLLAMA_COACH_MODEL ?? process.env.OLLAMA_MODEL ?? "llama3.2";
   const cacheKey = JSON.stringify({
-    version: "learning-coach-v1",
-    model,
+    version: "learning-coach-v2",
+    provider,
+    model: provider === "ollama" ? ollamaModel : geminiModel,
     prompt: buildPrompt(params),
   });
 
@@ -125,13 +131,42 @@ export async function POST(request: Request) {
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
+  if (provider !== "ollama" && !apiKey) {
     return NextResponse.json(buildOfflineCoach(params.studentMessage, params.lesson.childName));
   }
 
   const result = await withInFlightDedup("learning-coach", cacheKey, async () => {
+    if (provider === "ollama") {
+      const system =
+        "You are an elementary Socratic tutor. Never give final answers, completed worksheet responses, or copyable submission text. Instead guide the student to discover the answer. Be warm and concise. Use child-friendly language. Respond with JSON only matching: coachReply, nextStep, reflectionQuestion, blockedDirectAnswer (boolean).";
+      try {
+        const rawText = await ollamaGenerateText({
+          system,
+          prompt: buildPrompt(params),
+          temperature: 0.2,
+          model: ollamaModel,
+        });
+        const jsonText = extractJsonObject(rawText) ?? rawText;
+        const parsed = RESPONSE_SCHEMA.safeParse({
+          ...(JSON.parse(jsonText || "{}") as object),
+          warnings: [],
+        });
+        if (parsed.success) {
+          await writeJsonCache("learning-coach", cacheKey, parsed.data);
+          return parsed.data;
+        }
+      } catch {
+        return buildOfflineCoach(params.studentMessage, params.lesson.childName);
+      }
+      return buildOfflineCoach(params.studentMessage, params.lesson.childName);
+    }
+
+    if (!apiKey) {
+      return buildOfflineCoach(params.studentMessage, params.lesson.childName);
+    }
+
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent`,
       {
         method: "POST",
         headers: {

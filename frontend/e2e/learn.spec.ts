@@ -45,6 +45,18 @@ test.describe('Student Learn page (/learn)', () => {
         body: JSON.stringify(lessons),
       })
     );
+    await page.route('**/planner/recommend/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          student_id: 'student-demo-id',
+          recommendations: [
+            { action: 'continue_learning', reason: 'Mock coach suggestion for e2e.', priority: 0.5 },
+          ],
+        }),
+      })
+    );
   }
 
   test.beforeEach(async ({ page, authMocks }) => {
@@ -93,7 +105,7 @@ test.describe('Student Learn page (/learn)', () => {
     );
     await learnPage.goto();
     await learnPage.waitForLoaded();
-    await expect(learnPage.lessonsHeading()).toContainText(/no lessons yet/i);
+    await expect(learnPage.emptyLessonsHeading()).toContainText(/no lessons yet/i);
   });
 
   test('has sign out button', async () => {

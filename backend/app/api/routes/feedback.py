@@ -7,13 +7,17 @@ and re-quiz triggers to the frontend.
 from __future__ import annotations
 
 import logging
+from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+
 from app.schemas.feedback import (
+    AttentionSignalRequest,
+    AttentionSignalResponse,
     ExplanationRequest,
     ExplanationResponse,
     HintRequest,
@@ -89,6 +93,18 @@ async def generate_motivation(
         question_context=payload.question_context,
     )
     return MotivationResponse(**result)
+
+
+@router.post("/attention-signal", response_model=AttentionSignalResponse)
+def post_attention_signal(payload: AttentionSignalRequest) -> AttentionSignalResponse:
+    """Record an attention recommendation (recap/break/continue) for Planner/Feedback integration."""
+    record_attention_signal(
+        user_id=UUID(payload.user_id),
+        session_id=UUID(payload.session_id),
+        recommended_action=payload.recommended_action,
+        rationale=payload.rationale,
+    )
+    return AttentionSignalResponse()
 
 
 @router.post("/re-quiz", response_model=ReQuizResponse)

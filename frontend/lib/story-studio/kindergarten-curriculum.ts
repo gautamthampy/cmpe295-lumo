@@ -1,6 +1,9 @@
 export type DistrictId = "SJUSD" | "ESD";
 export type SubjectId = "ela" | "math" | "science" | "social_studies";
 
+/** Parent form supports G1–G3; seeded rows are grade 2 only for now. */
+export type CurriculumGradeLevel = 1 | 2 | 3;
+
 export type ConceptFamily =
   | "habitats_and_survival"
   | "characters_and_challenges"
@@ -544,4 +547,15 @@ export function getCurriculumByDistrictAndSubject(
   return GRADE2_CURRICULUM.filter(
     (entry) => entry.district === district && entry.subject === subject
   );
+}
+
+export function getCurriculumByDistrictSubjectAndGrade(
+  district: DistrictId,
+  subject: SubjectId,
+  gradeLevel: CurriculumGradeLevel
+): CurriculumEntry[] {
+  if (gradeLevel !== 2) {
+    return [];
+  }
+  return getCurriculumByDistrictAndSubject(district, subject);
 }

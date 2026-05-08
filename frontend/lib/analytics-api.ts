@@ -1,3 +1,7 @@
+/**
+ * Canonical browser client for analytics and attention APIs (proxied via `authRequest` / `/api/backend`).
+ * Prefer this module over ad-hoc `fetch` to localhost so auth and API prefixes stay consistent.
+ */
 import { authRequest } from "@/lib/auth";
 
 // ---- Analytics & Attention API ----
@@ -46,6 +50,12 @@ export type AttentionPeaksResponse = {
   windows: AttentionPeakWindow[];
 };
 
+export type TimePerConceptRow = {
+  module_id: string;
+  module_title: string;
+  minutes: number;
+};
+
 export type DashboardResponse = {
   user_id: string;
   lessons_completed: number;
@@ -54,6 +64,8 @@ export type DashboardResponse = {
   strengths: string[];
   weaknesses: string[];
   time_spent_minutes: number;
+  /** Minutes aggregated by curriculum module (Phase 2). */
+  time_per_concept?: TimePerConceptRow[];
   attention_summary: {
     average_attention_score: number;
     peak_focus_time: string;

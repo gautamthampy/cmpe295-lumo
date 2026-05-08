@@ -26,6 +26,12 @@ type StoredResult = Pick<GenerateLessonResponse, "lesson" | "source"> & {
   errors: string[];
 };
 
+type StoryStudioLearner = {
+  studentId: string;
+  displayName: string;
+  gradeLevel: number;
+};
+
 function formatMechanicLabel(mechanicId: string) {
   return mechanicId
     .split("_")
@@ -34,7 +40,7 @@ function formatMechanicLabel(mechanicId: string) {
     .join(" ");
 }
 
-export function PortalStoryStudio() {
+export function PortalStoryStudio({ learners }: { learners: StoryStudioLearner[] }) {
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<StoredResult | null>(null);
   const [lastInput, setLastInput] = useState<ParentInput | null>(null);
@@ -108,7 +114,11 @@ export function PortalStoryStudio() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-        <ParentPromptForm isLoading={isLoading} onSubmit={(input) => void handleSubmit(input)} />
+        <ParentPromptForm
+          isLoading={isLoading}
+          learners={learners}
+          onSubmit={(input) => void handleSubmit(input)}
+        />
 
         <div className="space-y-4">
           {isLoading ? (

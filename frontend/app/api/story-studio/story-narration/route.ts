@@ -6,6 +6,8 @@ import {
   withInFlightDedup,
   writeJsonCache,
 } from "@/lib/story-studio/server/gemini-cache";
+import { getServerLlmProvider } from "@/lib/story-studio/server/llm-provider";
+import { redactPii } from "@/lib/story-studio/server/pii-redaction";
 import { STORY_NARRATION_RESPONSE_SCHEMA } from "@/lib/story-studio/story-experience";
 
 export const runtime = "nodejs";
@@ -57,7 +59,8 @@ export async function POST(request: Request) {
     );
   }
 
-  const { transcript, voiceStyle } = parsedRequest.data;
+  const transcript = redactPii(parsedRequest.data.transcript);
+  const voiceStyle = redactPii(parsedRequest.data.voiceStyle);
   const apiKey = process.env.GEMINI_API_KEY;
   const model = process.env.GEMINI_TTS_MODEL ?? "gemini-2.5-flash-preview-tts";
   const voiceName = process.env.GEMINI_TTS_VOICE ?? "Puck";
@@ -78,13 +81,17 @@ export async function POST(request: Request) {
   }
 
   const result = await withInFlightDedup("story-narrations", cacheKey, async () => {
-    if (!apiKey) {
+    if (getServerLlmProvider() === "ollama" || !apiKey) {
       return {
         transcript,
         audioDataUrl: null,
         provider: "browser-speech" as const,
         voiceName: null,
-        warnings: ["Missing GEMINI_API_KEY for TTS. Falling back to browser speech."],
+        warnings: [
+          getServerLlmProvider() === "ollama"
+            ? "LLM_PROVIDER=ollama: use browser speech for narration (no Gemini TTS)."
+            : "Missing GEMINI_API_KEY for TTS. Falling back to browser speech.",
+        ],
       };
     }
 

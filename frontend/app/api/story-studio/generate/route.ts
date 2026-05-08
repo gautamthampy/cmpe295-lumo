@@ -20,6 +20,8 @@ import {
   withInFlightDedup,
   writeJsonCache,
 } from "@/lib/story-studio/server/gemini-cache";
+import { getServerLlmProvider, ollamaGenerateText } from "@/lib/story-studio/server/llm-provider";
+import { redactPii } from "@/lib/story-studio/server/pii-redaction";
 import { validateLessonSpec } from "@/lib/story-studio/validate-lesson-spec";
 
 export const runtime = "nodejs";
@@ -93,7 +95,7 @@ function parseModelJson<T>(rawText: string): T | null {
 
 function buildSceneSpecPrompt(lesson: LessonSpecDraft): string {
   return JSON.stringify({
-    child: lesson.childName,
+    child: redactPii(lesson.childName),
     subject: lesson.subject,
     unit: lesson.unitOrModule,
     concept: lesson.conceptFamily,
@@ -103,7 +105,8 @@ function buildSceneSpecPrompt(lesson: LessonSpecDraft): string {
       returnJsonOnly: true,
       gameFeel: "play_first_discovery",
       noQuizLanguage: true,
-      studentAge: "grade_2",
+      studentAge:
+        lesson.gradeLevel === 1 ? "grade_1" : lesson.gradeLevel === 2 ? "grade_2" : "grade_3",
       outcomePattern: "action_visual_change_fact_unlock",
     },
   });
@@ -116,6 +119,7 @@ function normalizeDraft(
     subject: "ela" | "math" | "science" | "social_studies";
     curriculumCode: string;
     childName: string;
+    gradeLevel: 1 | 2 | 3;
     defaultUnit: string;
     defaultConceptFamily: LessonSpecDraft["conceptFamily"];
     defaultVocabulary: "low" | "medium";
@@ -136,7 +140,7 @@ function normalizeDraft(
   return {
     ...sourceDraft,
     lessonId: sourceDraft.lessonId ?? `live-${params.curriculumCode}-${Date.now()}`,
-    gradeLevel: 2,
+    gradeLevel: params.gradeLevel,
     district: params.district,
     subject: params.subject,
     curriculumCode: params.curriculumCode,
@@ -188,6 +192,33 @@ function normalizeDraft(
       warnings: [],
     },
   };
+}
+
+async function generateWithOllamaPlanner(prompt: string): Promise<{
+  draft: LessonSpecDraft | null;
+  error: string | null;
+  usage: GeminiUsageMetadata | null;
+}> {
+  try {
+    const raw = await ollamaGenerateText({
+      system: PLANNER_SYSTEM_PROMPT,
+      prompt,
+      temperature: 0,
+      model: process.env.OLLAMA_PLANNER_MODEL ?? process.env.OLLAMA_MODEL,
+    });
+    const draft = parseModelJson<LessonSpecDraft>(raw);
+    return {
+      draft,
+      error: draft ? null : "Ollama returned text that did not parse to a lesson JSON object.",
+      usage: null,
+    };
+  } catch (error) {
+    return {
+      draft: null,
+      error: error instanceof Error ? error.message : "Ollama lesson generation failed.",
+      usage: null,
+    };
+  }
 }
 
 async function generateWithGemini(prompt: string): Promise<{
@@ -259,6 +290,54 @@ async function generateWithGemini(prompt: string): Promise<{
   };
 }
 
+async function generatePlannerDraft(prompt: string): Promise<{
+  draft: LessonSpecDraft | null;
+  error: string | null;
+  usage: GeminiUsageMetadata | null;
+}> {
+  if (getServerLlmProvider() === "ollama") {
+    return generateWithOllamaPlanner(prompt);
+  }
+  return generateWithGemini(prompt);
+}
+
+const SCENE_SYSTEM_PROMPT =
+  "You design one safe, playful grade-2 game scene spec. Return JSON only. Avoid quiz wording. The scene must teach through action, visual change, and a fact unlock.";
+
+async function generateSceneSpecWithOllama(
+  lesson: LessonSpecDraft
+): Promise<{ sceneSpec: LessonSpecDraft["sceneSpec"] | null; error: string | null }> {
+  const prompt = buildSceneSpecPrompt(lesson);
+  const model = process.env.OLLAMA_SCENE_MODEL ?? process.env.OLLAMA_MODEL;
+  const cacheKey = JSON.stringify({ version: "scene-spec-v1", provider: "ollama", model, prompt });
+  const cached = await readJsonCache<unknown>("scene-specs", cacheKey);
+  if (cached) {
+    const parsedCached = SCENE_SPEC_SCHEMA.safeParse(cached);
+    if (parsedCached.success) {
+      return { sceneSpec: parsedCached.data, error: null };
+    }
+  }
+
+  return withInFlightDedup("scene-specs", cacheKey, async () => {
+    try {
+      const raw = await ollamaGenerateText({
+        system: SCENE_SYSTEM_PROMPT,
+        prompt,
+        temperature: 0.2,
+        model,
+      });
+      const parsed = SCENE_SPEC_SCHEMA.safeParse(parseModelJson<unknown>(raw));
+      if (!parsed.success) {
+        return { sceneSpec: null, error: "Scene spec model returned invalid JSON." };
+      }
+      await writeJsonCache("scene-specs", cacheKey, parsed.data);
+      return { sceneSpec: parsed.data, error: null };
+    } catch {
+      return { sceneSpec: null, error: "Ollama scene spec generation failed." };
+    }
+  });
+}
+
 async function generateSceneSpecWithGemini(
   lesson: LessonSpecDraft
 ): Promise<{ sceneSpec: LessonSpecDraft["sceneSpec"] | null; error: string | null }> {
@@ -292,8 +371,7 @@ async function generateSceneSpecWithGemini(
           systemInstruction: {
             parts: [
               {
-                text:
-                  "You design one safe, playful grade-2 game scene spec. Return JSON only. Avoid quiz wording. The scene must teach through action, visual change, and a fact unlock.",
+                text: SCENE_SYSTEM_PROMPT,
               },
             ],
           },
@@ -340,6 +418,15 @@ async function generateSceneSpecWithGemini(
   });
 }
 
+async function generateSceneSpec(
+  lesson: LessonSpecDraft
+): Promise<{ sceneSpec: LessonSpecDraft["sceneSpec"] | null; error: string | null }> {
+  if (getServerLlmProvider() === "ollama") {
+    return generateSceneSpecWithOllama(lesson);
+  }
+  return generateSceneSpecWithGemini(lesson);
+}
+
 export async function POST(request: Request) {
   const parsedInput = PARENT_INPUT_SCHEMA.safeParse(await request.json());
 
@@ -369,7 +456,11 @@ export async function POST(request: Request) {
   const prompt = buildPlannerUserPrompt(parentInput, entry);
   const lessonCacheKey = JSON.stringify({
     version: "lesson-live-v1",
-    model: process.env.GEMINI_MODEL ?? "gemini-3-flash-preview",
+    provider: getServerLlmProvider(),
+    model:
+      getServerLlmProvider() === "ollama"
+        ? (process.env.OLLAMA_MODEL ?? "llama3.2")
+        : (process.env.GEMINI_MODEL ?? "gemini-3-flash-preview"),
     prompt,
   });
   const cachedLiveResponse = await readJsonCache<unknown>("lessons-live", lessonCacheKey);
@@ -378,13 +469,14 @@ export async function POST(request: Request) {
     return NextResponse.json(cachedLiveResponse);
   }
 
-  const generation = await generateWithGemini(prompt);
+  const generation = await generatePlannerDraft(prompt);
   const plannedDraft = generation.draft
     ? normalizeDraft(generation.draft, {
         district: parentInput.district,
         subject: parentInput.subject,
         curriculumCode: parentInput.curriculumCode,
         childName: parentInput.childName,
+        gradeLevel: entry.gradeLevel,
         defaultUnit: entry.title,
         defaultConceptFamily: entry.conceptFamily,
         defaultVocabulary: entry.vocabularyLevel,
@@ -407,7 +499,7 @@ export async function POST(request: Request) {
     });
   }
 
-  const sceneSpecGeneration = await generateSceneSpecWithGemini(plannedDraft);
+  const sceneSpecGeneration = await generateSceneSpec(plannedDraft);
   const enrichedDraft: LessonSpecDraft = {
     ...plannedDraft,
     sceneSpec:

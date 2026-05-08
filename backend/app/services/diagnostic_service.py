@@ -199,7 +199,7 @@ class DiagnosticService:
         if not tags:
             return []
 
-        if not self.gemini or not self.gemini._client:
+        if not self.gemini or not self.gemini.model:
             return self._stub_activities(tags)
 
         prompt = f"""Generate {len(tags)} diagnostic quiz activities to probe Grade {grade_level} {subject.name} misconceptions.

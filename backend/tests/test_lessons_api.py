@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 
 def test_list_lessons_returns_seeded_catalog(client):
     response = client.get("/api/v1/lessons")
@@ -42,3 +44,16 @@ def test_lesson_analytics_summary_returns_metrics(client):
     assert payload["avg_accessibility"] >= 0
     assert payload["avg_quiz_pass"] >= 0
     assert len(payload["lessons"]) >= 5
+
+
+def test_lesson_analytics_summary_student_without_events_returns_empty(client):
+    student_id = str(uuid.uuid4())
+
+    response = client.get("/api/v1/lessons/analytics/summary", params={"student_id": student_id})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total_lessons"] == 0
+    assert payload["avg_accessibility"] == 0
+    assert payload["avg_quiz_pass"] == 0
+    assert payload["lessons"] == []

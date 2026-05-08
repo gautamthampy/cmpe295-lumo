@@ -304,29 +304,38 @@ export default async function PortalPlaceholderPage() {
               </div>
             ) : (
               <div className="mt-6 grid gap-4 md:grid-cols-2">
-                {students.map((student, index) => (
+                {students.map((student, index) => {
+                  const detailsHref = `/lessons/analytics?student_id=${encodeURIComponent(student.student_id)}`;
+                  return (
                   <article
                     key={student.student_id}
                     className={`rounded-[1.8rem] p-6 shadow-ambient ${getStudentCardTone(index)}`}
                   >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex items-start gap-4">
-                        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-surface-container-lowest text-3xl shadow-sm">
-                          {getAvatarEmoji(student.avatar_id)}
+                    <Link href={detailsHref} className="group block rounded-[1.3rem] transition-transform duration-150 hover:scale-[0.995]">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex items-start gap-4">
+                          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-surface-container-lowest text-3xl shadow-sm">
+                            {getAvatarEmoji(student.avatar_id)}
+                          </div>
+                          <div>
+                            <p className="font-headline text-2xl font-extrabold tracking-[-0.04em] text-on-surface">
+                              {student.display_name}
+                            </p>
+                            <p className="mt-1 font-body text-sm text-on-surface-variant">
+                              Grade {student.grade_level}
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-headline text-2xl font-extrabold tracking-[-0.04em] text-on-surface">
-                            {student.display_name}
-                          </p>
-                          <p className="mt-1 font-body text-sm text-on-surface-variant">
-                            Grade {student.grade_level}
-                          </p>
-                        </div>
+                        <span className="rounded-full bg-surface-container-lowest px-3 py-1 font-label text-xs font-bold uppercase tracking-[0.18em] text-outline">
+                          Ready
+                        </span>
                       </div>
-                      <span className="rounded-full bg-surface-container-lowest px-3 py-1 font-label text-xs font-bold uppercase tracking-[0.18em] text-outline">
-                        Ready
-                      </span>
-                    </div>
+
+                      <p className="mt-4 inline-flex items-center gap-2 font-label text-sm font-bold text-primary">
+                        Open lessons, progress, and analytics
+                        <ArrowUpRight className="h-4 w-4 transition-transform duration-150 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                      </p>
+                    </Link>
 
                     <p className="mt-4 font-body text-sm leading-6 text-on-surface-variant">
                       Generate a secure code when {student.display_name} is ready to sign in on a
@@ -340,7 +349,8 @@ export default async function PortalPlaceholderPage() {
                       />
                     </div>
                   </article>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -408,7 +418,13 @@ export default async function PortalPlaceholderPage() {
         </section>
 
         <section id="story-studio" className="mt-8 rounded-[2.4rem] bg-surface-container-high p-4 md:p-6">
-          <PortalStoryStudio />
+          <PortalStoryStudio
+            learners={students.map((student) => ({
+              studentId: student.student_id,
+              displayName: student.display_name,
+              gradeLevel: student.grade_level,
+            }))}
+          />
         </section>
       </div>
     </main>

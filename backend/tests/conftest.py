@@ -18,12 +18,13 @@ from app.main import app
 @pytest.fixture
 def test_settings() -> Settings:
     return Settings(
-        database_url="sqlite://",
-        jwt_secret="test-jwt-secret-for-pytest-only-12345",
-        backend_cors_origins=["http://localhost:3000"],
-        session_cookie_name="lumo_session",
-        session_cookie_secure=False,
-        debug_auth_tokens=True,
+        DATABASE_URL="sqlite://",
+        JWT_SECRET="test-jwt-secret-for-pytest-only-12345",
+        BACKEND_CORS_ORIGINS=["http://localhost:3000"],
+        SESSION_COOKIE_NAME="lumo_session",
+        SESSION_COOKIE_SECURE=False,
+        DEBUG_AUTH_TOKENS=True,
+        MAIL_DELIVERY_MODE="log",
     )
 
 

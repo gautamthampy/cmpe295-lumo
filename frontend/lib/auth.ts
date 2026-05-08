@@ -11,6 +11,9 @@ export const authRoutes = {
   studentSession: "/auth/student-session",
   subjects: "/auth/subjects",
   parentDashboard: "/auth/me",
+  studentLearningSummary: (studentId: string) => `/auth/students/${studentId}/learning-summary`,
+  studentLearningPlan: "/auth/student/learning-plan",
+  studentLearningPlanFor: (studentId: string) => `/auth/students/${studentId}/learning-plan`,
   createStudent: "/auth/students",
   requestStudentLoginCode: "/auth/student-login/request-code",
   verifyStudentLoginCode: "/auth/student-login/verify-code",
@@ -88,6 +91,26 @@ export type StudentSummary = {
   display_name: string;
   grade_level: number;
   avatar_id: string;
+  subjects?: SubjectCatalogItem[];
+};
+
+export type LearningPlanSubject = SubjectCatalogItem & {
+  topics: string[];
+  availableTopics?: string[];
+};
+
+export type StudentLearningPlanPayload = {
+  studentId: string;
+  gradeLevel: number;
+  configured: boolean;
+  subjects: LearningPlanSubject[];
+};
+
+export type StudentLearningPlanUpdatePayload = {
+  subjectSelections: Array<{
+    slug: string;
+    topics: string[];
+  }>;
 };
 
 export type StudentCreatePayload = {

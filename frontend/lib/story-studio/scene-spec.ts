@@ -162,8 +162,8 @@ export function buildSeedSceneSpec(context: SceneSpecContext): SceneSpec {
     return {
       kind: "choice_transform",
       title: "Creature Crafter",
-      instruction: "Pick the body helper that keeps the creature warm in its snowy home.",
-      helperText: "Look for the body helper that feels warm and cozy.",
+      instruction: "Pick every body helper that keeps the creature warm in its snowy home.",
+      helperText: "More than one answer can be right — look for helpers that trap heat.",
       rewardFact:
         "Thick fur and blubber trap heat, like wearing a winter coat in cold weather.",
       paletteKey: "frost",
