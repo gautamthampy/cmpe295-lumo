@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sys
 from dataclasses import dataclass
 from typing import Any
@@ -16,7 +17,9 @@ class CheckResult:
 
 def _contains_raw_pii(text: str) -> bool:
     lower = text.lower()
-    return ("example.com" in lower) or ("555-1212" in lower) or ("650 555" in lower)
+    has_email = bool(re.search(r"\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b", lower))
+    has_phone = bool(re.search(r"\b(?:\+?1[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}\b", lower))
+    return has_email or has_phone
 
 
 def run(base_url: str) -> int:
@@ -93,4 +96,3 @@ def run(base_url: str) -> int:
 if __name__ == "__main__":
     base = os.getenv("FRONTEND_BASE_URL", "http://localhost:3000")
     sys.exit(run(base))
-

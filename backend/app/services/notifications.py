@@ -51,7 +51,7 @@ def deliver_email(settings: Settings, *, recipient_email: str, subject: str, tex
     delivery_mode = settings.mail_delivery_mode.strip().lower()
     if delivery_mode in ("log", "console"):
         # "console" was an old default but never implemented — treat like log for local dev.
-        logger.info("Email delivery mode=%s to=%s subject=%s\n%s", delivery_mode, recipient_email, subject, text_body)
+        logger.info("Email delivery mode=%s to=%s subject=%s", delivery_mode, recipient_email, subject)
         return
 
     if delivery_mode != "smtp":
