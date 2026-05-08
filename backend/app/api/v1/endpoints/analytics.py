@@ -506,6 +506,48 @@ def get_dashboard_data(user_id: UUID, db: Session = Depends(get_db)):
     )
     avg_score_val = float(avg_score) if avg_score is not None else 0.0
 
+    quiz_session_rows = (
+        db.query(UserEvent.session_id)
+        .filter(
+            UserEvent.user_id == user_id,
+            UserEvent.event_type == "quiz_completed",
+            UserEvent.session_id.isnot(None),
+        )
+        .distinct()
+        .all()
+    )
+    quiz_session_ids = [row[0] for row in quiz_session_rows if row[0] is not None]
+
+    quiz_focus = {
+        "attempts": 0,
+        "average_attention_score": 0.0,
+        "low_focus_attempts": 0,
+    }
+
+    if quiz_session_ids:
+        per_session = (
+            db.query(
+                AttentionMetric.session_id,
+                func.avg(AttentionMetric.attention_score).label("avg_score"),
+            )
+            .filter(
+                AttentionMetric.user_id == user_id,
+                AttentionMetric.session_id.in_(quiz_session_ids),
+                AttentionMetric.attention_score.isnot(None),
+            )
+            .group_by(AttentionMetric.session_id)
+            .all()
+        )
+        session_scores = [float(row.avg_score) for row in per_session if row.avg_score is not None]
+        if session_scores:
+            avg_quiz_focus = sum(session_scores) / len(session_scores)
+            low_focus = sum(1 for score in session_scores if score < 0.4)
+            quiz_focus = {
+                "attempts": len(session_scores),
+                "average_attention_score": avg_quiz_focus,
+                "low_focus_attempts": low_focus,
+            }
+
     attention_summary = {
         "average_attention_score": avg_score_val,
         "peak_focus_time": "",
@@ -522,6 +564,7 @@ def get_dashboard_data(user_id: UUID, db: Session = Depends(get_db)):
         "weaknesses": [],
         "time_spent_minutes": 0,
         "attention_summary": attention_summary,
+        "quiz_focus": quiz_focus,
     }
 
     return JSONResponse(status_code=200, content=dashboard)

@@ -39,14 +39,12 @@ class LessonAnalyticsMetricResponse(BaseModel):
     title: str
     subject: str
     grade_level: int
-    accessibility_score: int
     quiz_pass_rate: int
     status: str = "active"
 
 
 class LessonAnalyticsSummaryResponse(BaseModel):
     total_lessons: int
-    avg_accessibility: int
     avg_quiz_pass: int
     lessons: list[LessonAnalyticsMetricResponse] = Field(default_factory=list)
 

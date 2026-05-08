@@ -88,6 +88,8 @@ class Student(Base):
         "StudentSubject",
         back_populates="student",
         cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="noload",
     )
 
 

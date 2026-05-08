@@ -59,6 +59,11 @@ export type DashboardResponse = {
     peak_focus_time: string;
     drift_count: number;
   };
+  quiz_focus?: {
+    attempts: number;
+    average_attention_score: number;
+    low_focus_attempts: number;
+  };
 };
 
 export type EventPayload = {

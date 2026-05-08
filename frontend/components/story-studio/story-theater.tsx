@@ -13,6 +13,7 @@ interface StoryTheaterProps {
   lesson: LessonSpec;
   storyCompleted: boolean;
   onUnlockMission: () => void;
+  onNarrationComplete?: () => void;
 }
 
 type StoryStatus = "idle" | "loading" | "ready" | "error";
@@ -25,7 +26,7 @@ const loadingSteps = [
 
 const placeholderEmojis = ["🗺️", "🌿", "⭐"];
 
-export function StoryTheater({ lesson, storyCompleted, onUnlockMission }: StoryTheaterProps) {
+export function StoryTheater({ lesson, storyCompleted, onUnlockMission, onNarrationComplete }: StoryTheaterProps) {
   const [status, setStatus] = useState<StoryStatus>("idle");
   const [experience, setExperience] = useState<StoryExperienceResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
@@ -86,6 +87,7 @@ export function StoryTheater({ lesson, storyCompleted, onUnlockMission }: StoryT
   function handleAudioEnded() {
     setIsNarrating(false);
     setNarrationFinished(true);
+    onNarrationComplete?.();
   }
 
   async function handlePlayNarration() {
@@ -140,6 +142,7 @@ export function StoryTheater({ lesson, storyCompleted, onUnlockMission }: StoryT
       utterance.onend = () => {
         setIsNarrating(false);
         setNarrationFinished(true);
+        onNarrationComplete?.();
       };
       utterance.onerror = () => {
         setIsNarrating(false);

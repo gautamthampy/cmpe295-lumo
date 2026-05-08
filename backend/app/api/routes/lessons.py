@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -181,29 +181,71 @@ def lesson_analytics_summary(
     student_id: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> LessonAnalyticsSummaryResponse:
-    del student_id
+    import uuid
+    from app.models.events import UserEvent
 
-    metrics = [
-        LessonAnalyticsMetricResponse(
-            lesson_id=lesson.external_id,
-            title=lesson.title,
-            subject=subject.slug,
-            grade_level=subject.grade_level,
-            accessibility_score=88 + (index % 4) * 3,
-            quiz_pass_rate=72 + (index % 5) * 5,
-            status="active",
+    query = db.query(UserEvent.event_data).filter(UserEvent.event_type == "quiz_completed")
+    
+    if student_id:
+        try:
+            student_uuid = uuid.UUID(student_id)
+            query = query.filter(UserEvent.user_id == student_uuid)
+        except ValueError:
+            pass
+            
+    events = query.all()
+    
+    lesson_stats = {}
+    for (raw_event_data,) in events:
+        event_data = raw_event_data.get("data") if "data" in raw_event_data else raw_event_data
+        
+        lesson_id = event_data.get("lesson_id")
+        quiz_score = event_data.get("quiz_score") if event_data.get("quiz_score") is not None else event_data.get("score")
+        quiz_total = event_data.get("quiz_total") if event_data.get("quiz_total") is not None else event_data.get("total_questions")
+        if lesson_id and quiz_score is not None and quiz_total:
+            try:
+                score_pct = (float(quiz_score) / float(quiz_total)) * 100
+                if lesson_id not in lesson_stats:
+                    lesson_stats[lesson_id] = {
+                        "scores": [],
+                        "title": event_data.get("lesson_title") or "Generated Quiz",
+                        "subject": event_data.get("subject") or "math",
+                        "grade_level": event_data.get("grade_level") or 0,
+                    }
+                lesson_stats[lesson_id]["scores"].append(score_pct)
+                if event_data.get("lesson_title"):
+                    lesson_stats[lesson_id]["title"] = event_data.get("lesson_title")
+                if event_data.get("subject"):
+                    lesson_stats[lesson_id]["subject"] = event_data.get("subject")
+                if event_data.get("grade_level"):
+                    lesson_stats[lesson_id]["grade_level"] = event_data.get("grade_level")
+            except (ValueError, ZeroDivisionError):
+                pass
+
+    metrics = []
+    for lesson_id, stats in lesson_stats.items():
+        scores = stats["scores"]
+        quiz_pass_rate = int(sum(scores) / len(scores)) if scores else 0
+        
+        metrics.append(
+            LessonAnalyticsMetricResponse(
+                lesson_id=str(lesson_id),
+                title=stats["title"],
+                subject=stats["subject"],
+                grade_level=stats["grade_level"],
+
+                quiz_pass_rate=quiz_pass_rate,
+                status="active",
+            )
         )
-        for index, (subject, _, lesson) in enumerate(list_curriculum_lesson_entries(db))
-    ]
 
     if not metrics:
-        return LessonAnalyticsSummaryResponse(total_lessons=0, avg_accessibility=0, avg_quiz_pass=0, lessons=[])
+        return LessonAnalyticsSummaryResponse(total_lessons=0, avg_quiz_pass=0, lessons=[])
 
-    avg_accessibility = round(sum(metric.accessibility_score for metric in metrics) / len(metrics))
     avg_quiz_pass = round(sum(metric.quiz_pass_rate for metric in metrics) / len(metrics))
+
     return LessonAnalyticsSummaryResponse(
         total_lessons=len(metrics),
-        avg_accessibility=avg_accessibility,
         avg_quiz_pass=avg_quiz_pass,
         lessons=metrics,
     )
@@ -247,6 +289,8 @@ class _QuizGenerateRequest(_PydanticBaseModel):
     lesson_id: str
     quiz_context: dict | None = None
     misconception_tags: list[str] = []
+    attempt_number: int | None = None
+    exclude_question_ids: list[str] = []
 
 
 def _build_mock_quiz(lesson_id: str, subject: str, grade_level: int, tags: list[str]) -> QuizResponse:
@@ -284,6 +328,33 @@ def _build_mock_quiz(lesson_id: str, subject: str, grade_level: int, tags: list[
                 ],
                 difficulty="medium",
             ),
+            QuizQuestion(
+                question_id=f"{lesson_id}-q4",
+                question_text="Which choice shows a good learning habit?",
+                options=[
+                    QuizOption(option_id="a", option_text="Checking your work as you go", is_distractor=False),
+                    QuizOption(option_id="b", option_text="Rushing without reading", is_distractor=True, misconception_type="impulse"),
+                ],
+                difficulty="medium",
+            ),
+            QuizQuestion(
+                question_id=f"{lesson_id}-q5",
+                question_text="When you are stuck, what is a helpful next step?",
+                options=[
+                    QuizOption(option_id="a", option_text="Ask for a hint and try again", is_distractor=False),
+                    QuizOption(option_id="b", option_text="Quit the lesson", is_distractor=True, misconception_type="avoidance"),
+                ],
+                difficulty="medium",
+            ),
+            QuizQuestion(
+                question_id=f"{lesson_id}-q6",
+                question_text=f"How can you remember {tag_label} later?",
+                options=[
+                    QuizOption(option_id="a", option_text="Explain it in your own words", is_distractor=False),
+                    QuizOption(option_id="b", option_text="Ignore it and move on", is_distractor=True, misconception_type="forgetting"),
+                ],
+                difficulty="hard",
+            ),
         ],
         generated_at=datetime.now(timezone.utc).isoformat(),
     )
@@ -292,6 +363,7 @@ def _build_mock_quiz(lesson_id: str, subject: str, grade_level: int, tags: list[
 @router.post("/lessons/{lesson_id}/quiz", response_model=QuizResponse)
 async def generate_quiz(
     lesson_id: str,
+    payload: _QuizGenerateRequest | None = Body(default=None),
     db: Session = Depends(get_db),
 ):
     """
@@ -305,15 +377,17 @@ async def generate_quiz(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lesson not found.")
 
     subject, _module, lesson = entry
-    tags = list(lesson.tags or [])
+    tags = list(payload.misconception_tags) if payload and payload.misconception_tags else list(lesson.tags or [])
+    exclude_ids = set(payload.exclude_question_ids or []) if payload else set()
     gemini = get_gemini_service()
 
     if gemini.model:
         import json as _json
 
-        prompt = f"""Generate 3 multiple-choice quiz questions for a Grade {subject.grade_level} {subject.name} lesson titled "{lesson.title}".
+        prompt = f"""Generate 6 multiple-choice quiz questions for a Grade {subject.grade_level} {subject.name} lesson titled "{lesson.title}".
 
 Misconception tags to probe: {', '.join(tags) if tags else 'general understanding'}
+    Exclude these question_ids (do not repeat them): {', '.join(sorted(exclude_ids)) if exclude_ids else 'none'}
 
 Return a JSON array of objects:
 [{{"question_id":"q1","question_text":"...","options":[{{"option_id":"a","option_text":"...","is_distractor":false,"misconception_type":null}},{{"option_id":"b","option_text":"...","is_distractor":true,"misconception_type":"tag"}}],"difficulty":"easy|medium|hard"}}]
@@ -326,7 +400,7 @@ Return ONLY valid JSON."""
             if clean.startswith("```"):
                 clean = "\n".join(clean.split("\n")[1:-1])
             questions_data = _json.loads(clean)
-            questions = [QuizQuestion(**q) for q in questions_data]
+            questions = [QuizQuestion(**q) for q in questions_data if q.get("question_id") not in exclude_ids]
             return QuizResponse(
                 quiz_id=f"quiz-{lesson_id}",
                 lesson_id=lesson_id,
