@@ -15,6 +15,15 @@ export interface StudentSessionState {
   adaptationReason: string;
   eventLog: string[];
   storyCompleted?: boolean;
+  narrationCompleted?: boolean;
+  quizState?: {
+    attemptNumber: number;
+    submitted: boolean;
+    answers: Record<string, string>;
+    quiz: unknown | null;
+    retryQuiz: unknown | null;
+    lastScore?: { score: number; total: number } | null;
+  };
 }
 
 export function saveGeneratedLesson(params: {

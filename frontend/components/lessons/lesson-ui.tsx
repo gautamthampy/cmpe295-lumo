@@ -4,7 +4,7 @@ import { Bell, BookOpen, ChevronLeft, ChevronRight, CircleUserRound, Grid2x2, He
 import { clsx } from "clsx";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type MutableRefObject, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { FeedbackModal } from "@/components/feedback/FeedbackModal";
 import { GeneratedMissionCallout } from "@/components/story-studio/generated-mission-callout";
@@ -14,6 +14,7 @@ import SelfReportPanel from "@/components/attention/SelfReportPanel";
 import {
   type AttentionDailySummary,
   type DashboardResponse,
+  type QuestionAnsweredIngestResponse,
   createLearningSession,
   endLearningSession,
   fetchAttentionSummary,
@@ -38,9 +39,10 @@ import {
   getFallbackLessonRender,
   logLessonEvent,
 } from "@/lib/lessons";
+import { useTwoAttemptQuizController } from "@/lib/lesson-quiz-controller";
 import { useAuthStore } from "@/lib/store/auth";
 
-type NavSection = "learn" | "library" | "analytics";
+export type NavSection = "learn" | "library" | "analytics" | "attention";
 
 type ParsedSectionNode =
   | {
@@ -203,11 +205,12 @@ function lessonMood(subject: string) {
   }
 }
 
-function LessonTopBar({ active }: { active: NavSection }) {
+export function LessonTopBar({ active }: { active: NavSection }) {
   const navItems: Array<{ href: string; label: string; key: NavSection }> = [
     { href: "/learn", label: "My Lessons", key: "learn" },
     { href: "/lessons", label: "Library", key: "library" },
     { href: "/lessons/analytics", label: "Achievements", key: "analytics" },
+    { href: "/dashboard/attention", label: "Focus", key: "attention" },
   ];
 
   return (
@@ -814,9 +817,7 @@ export function LessonsLibraryExperience() {
 
 export function LessonsAnalyticsExperience() {
   const searchParams = useSearchParams();
-  const queryStudentId = searchParams.get("student_id") ?? undefined;
-  const authUserId = useAuthStore((s) => s.userId);
-  const studentId = queryStudentId ?? authUserId ?? undefined;
+  const studentId = searchParams.get("student_id") ?? undefined;
   const [summary, setSummary] = useState<LessonAnalyticsSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -886,14 +887,10 @@ export function LessonsAnalyticsExperience() {
 
         {summary ? (
           <>
-            <div className="grid gap-5 md:grid-cols-3">
+            <div className="grid gap-5 md:grid-cols-2">
               <div className="rounded-[2rem] bg-white/84 p-6 shadow-[0_18px_36px_rgba(60,53,18,0.12)]">
                 <p className="font-['Plus_Jakarta_Sans'] text-xs font-black uppercase tracking-[0.28em] text-[#8a5d00]">Active Lessons</p>
                 <p className="mt-3 text-3xl font-black text-[#1f1b00]">{summary.total_lessons}</p>
-              </div>
-              <div className="rounded-[2rem] bg-white/84 p-6 shadow-[0_18px_36px_rgba(60,53,18,0.12)]">
-                <p className="font-['Plus_Jakarta_Sans'] text-xs font-black uppercase tracking-[0.28em] text-[#8a5d00]">Avg A11y</p>
-                <p className="mt-3 text-3xl font-black text-[#1f1b00]">{summary.avg_accessibility}%</p>
               </div>
               <div className="rounded-[2rem] bg-white/84 p-6 shadow-[0_18px_36px_rgba(60,53,18,0.12)]">
                 <p className="font-['Plus_Jakarta_Sans'] text-xs font-black uppercase tracking-[0.28em] text-[#8a5d00]">Avg Quiz</p>
@@ -906,26 +903,19 @@ export function LessonsAnalyticsExperience() {
                 <Trophy className="h-5 w-5 text-[#8a5d00]" />
                 <h3 className="font-['Plus_Jakarta_Sans'] text-3xl font-black tracking-[-0.05em] text-[#1f1b00]">Lesson Metrics</h3>
               </div>
-              {metrics.length > 0 ? (
-                <ul aria-label="Lesson metrics" className="space-y-4">
-                  {metrics.map((metric) => (
-                    <li key={metric.lesson_id} className="flex flex-col gap-4 rounded-[1.5rem] bg-[#fff9e8] p-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
-                      <div>
-                        <p className="font-['Plus_Jakarta_Sans'] text-2xl font-black tracking-[-0.04em] text-[#1f1b00]">{metric.title}</p>
-                        <p className="mt-1 font-['Be_Vietnam_Pro'] text-sm font-semibold text-[#5b4c2c]">{renderMetricSubtitle(metric)}</p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <ScoreBadge score={metric.accessibility_score} />
-                        <ScoreBadge score={metric.quiz_pass_rate} />
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="rounded-[1.5rem] bg-[#fff9e8] px-5 py-4 font-['Be_Vietnam_Pro'] text-sm font-semibold leading-7 text-[#5b4c2c]">
-                  No lesson metrics yet for this learner. Complete a lesson and quiz to see progress here.
-                </p>
-              )}
+              <ul aria-label="Lesson metrics" className="space-y-4">
+                {metrics.map((metric) => (
+                  <li key={metric.lesson_id} className="flex flex-col gap-4 rounded-[1.5rem] bg-[#fff9e8] p-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <p className="font-['Plus_Jakarta_Sans'] text-2xl font-black tracking-[-0.04em] text-[#1f1b00]">{metric.title}</p>
+                      <p className="mt-1 font-['Be_Vietnam_Pro'] text-sm font-semibold text-[#5b4c2c]">{renderMetricSubtitle(metric)}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <ScoreBadge score={metric.quiz_pass_rate} />
+                    </div>
+                  </li>
+                ))}
+              </ul>
             </div>
           </>
         ) : null}
@@ -955,27 +945,27 @@ export function LessonsAnalyticsExperience() {
                     : "—"}
                 </p>
               </div>
-              <div className="rounded-[2rem] bg-white/84 p-6 shadow-[0_18px_36px_rgba(60,53,18,0.12)]">
-                <p className="font-['Plus_Jakarta_Sans'] text-xs font-black uppercase tracking-[0.28em] text-[#8a5d00]">Mastery</p>
-                <p className="mt-3 text-3xl font-black text-[#1f1b00]">{Math.round(dashboard.overall_mastery)}%</p>
-              </div>
-              <div className="rounded-[2rem] bg-white/84 p-6 shadow-[0_18px_36px_rgba(60,53,18,0.12)]">
-                <p className="font-['Plus_Jakarta_Sans'] text-xs font-black uppercase tracking-[0.28em] text-[#8a5d00]">Time on lessons</p>
-                <p className="mt-3 text-3xl font-black text-[#1f1b00]">{dashboard.time_spent_minutes} min</p>
-              </div>
             </div>
           ) : null}
 
-          {dashboard && (dashboard.time_per_concept?.length ?? 0) > 0 ? (
-            <div className="mb-6 rounded-[2rem] bg-white/82 p-6 shadow-[0_18px_36px_rgba(60,53,18,0.12)]">
-              <h4 className="mb-3 font-['Plus_Jakarta_Sans'] text-xl font-black text-[#1f1b00]">Time by module</h4>
-              <ul className="space-y-2 font-['Be_Vietnam_Pro'] text-sm text-[#5b4c2c]">
-                {(dashboard.time_per_concept ?? []).map((row) => (
-                  <li key={row.module_id}>
-                    <span className="font-semibold text-[#1f1b00]">{row.module_title}</span> — {row.minutes} min
-                  </li>
-                ))}
-              </ul>
+          {dashboard?.quiz_focus ? (
+            <div className="mb-6 grid gap-5 md:grid-cols-3">
+              <div className="rounded-[2rem] bg-white/84 p-6 shadow-[0_18px_36px_rgba(60,53,18,0.12)]">
+                <p className="font-['Plus_Jakarta_Sans'] text-xs font-black uppercase tracking-[0.28em] text-[#8a5d00]">Quiz Attempts</p>
+                <p className="mt-3 text-3xl font-black text-[#1f1b00]">{dashboard.quiz_focus.attempts}</p>
+              </div>
+              <div className="rounded-[2rem] bg-white/84 p-6 shadow-[0_18px_36px_rgba(60,53,18,0.12)]">
+                <p className="font-['Plus_Jakarta_Sans'] text-xs font-black uppercase tracking-[0.28em] text-[#8a5d00]">Quiz Focus Avg</p>
+                <p className="mt-3 text-3xl font-black text-[#1f1b00]">
+                  {dashboard.quiz_focus.average_attention_score > 0
+                    ? `${Math.round(dashboard.quiz_focus.average_attention_score * 100)}%`
+                    : "—"}
+                </p>
+              </div>
+              <div className="rounded-[2rem] bg-white/84 p-6 shadow-[0_18px_36px_rgba(60,53,18,0.12)]">
+                <p className="font-['Plus_Jakarta_Sans'] text-xs font-black uppercase tracking-[0.28em] text-[#8a5d00]">Low Focus Attempts</p>
+                <p className="mt-3 text-3xl font-black text-[#1f1b00]">{dashboard.quiz_focus.low_focus_attempts}</p>
+              </div>
             </div>
           ) : null}
 
@@ -1084,6 +1074,21 @@ function buildQuizScore(quiz: LessonQuizPayload, answers: Record<string, string>
   return correct;
 }
 
+function QuizQuestionMountTracker({
+  questionId,
+  startedRef,
+}: {
+  questionId: string;
+  startedRef: MutableRefObject<Record<string, number>>;
+}) {
+  useEffect(() => {
+    if (startedRef.current[questionId] == null) {
+      startedRef.current[questionId] = Date.now();
+    }
+  }, [questionId, startedRef]);
+  return null;
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function isUuid(value: string | undefined): value is string {
@@ -1117,11 +1122,15 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
   );
 
   const [analyticsSessionId, setAnalyticsSessionId] = useState<string | null>(null);
+  const analyticsSessionIdRef = useRef<string | null>(null);
   const [quizRunId, setQuizRunId] = useState<string | null>(null);
   const lessonOpenedAtRef = useRef<number | null>(null);
   const quizStartedAtRef = useRef<number | null>(null);
   const quizStartedIngestKeyRef = useRef<string | null>(null);
+  const questionStartedAtRef = useRef<Record<string, number>>({});
+  const answerSelectedAtRef = useRef<Record<string, number>>({});
 
+  const [driftBanner, setDriftBanner] = useState<{ action: string; rationale: string } | null>(null);
   const [lesson, setLesson] = useState<LessonRenderPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1130,10 +1139,7 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
   const [a11yOpen, setA11yOpen] = useState(false);
   const [fontSize, setFontSize] = useState<"A" | "A+" | "A++">("A");
   const [highContrast, setHighContrast] = useState(false);
-  const [quiz, setQuiz] = useState<LessonQuizPayload | null>(null);
   const [quizPending, setQuizPending] = useState(false);
-  const [quizAnswers, setQuizAnswers] = useState<Record<string, string>>({});
-  const [quizSubmitted, setQuizSubmitted] = useState(false);
 
   // ── Feedback Agent state ──────────────────────────────────────
   const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
@@ -1170,7 +1176,7 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
     setHintLevels((prev) => ({ ...prev, [questionId]: Math.min(currentLevel + 1, 4) }));
     showFeedback(`Hint (Level ${currentLevel})`, result.hint_text, { hintLevel: currentLevel });
     setHintPending(null);
-  }, [hintLevels, showFeedback, feedbackUserId, feedbackSessionId]);
+  }, [feedbackSessionId, feedbackUserId, hintLevels, showFeedback]);
 
   const handleExplanationRequest = useCallback(async (questionId: string, questionText: string, userAnswer: string, correctAnswer: string, misconceptionType?: string | null) => {
     setExplanationPending(questionId);
@@ -1185,17 +1191,233 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
     });
     showFeedback("Let's review this question", `${result.explanation}\n\n${result.motivational_message}`);
     setExplanationPending(null);
-  }, [showFeedback, feedbackUserId, feedbackSessionId]);
+  }, [feedbackSessionId, feedbackUserId, showFeedback]);
 
-  const handleMotivationNudge = useCallback(async (errorCount: number, subject?: string) => {
-    const result = await requestMotivation({
-      user_id: feedbackUserId,
-      session_id: feedbackSessionId,
-      error_count: errorCount,
-      question_context: subject,
-    });
-    showFeedback("Keep Going! 🌟", result.message, { isMotivation: true });
-  }, [showFeedback, feedbackUserId, feedbackSessionId]);
+  useEffect(() => {
+    if (!lesson || !effectiveUserId || !isUuid(effectiveUserId)) {
+      return;
+    }
+
+    let active = true;
+    createLearningSession(effectiveUserId)
+      .then((session) => {
+        if (!active) {
+          return;
+        }
+        analyticsSessionIdRef.current = session.session_id;
+        setAnalyticsSessionId(session.session_id);
+        if (lessonOpenedAtRef.current === null) {
+          lessonOpenedAtRef.current = Date.now();
+        }
+      })
+      .catch(() => {
+        if (active) {
+          analyticsSessionIdRef.current = null;
+          setAnalyticsSessionId(null);
+        }
+      });
+
+    return () => {
+      active = false;
+      const sessionId = analyticsSessionIdRef.current;
+      analyticsSessionIdRef.current = null;
+      if (sessionId) {
+        endLearningSession(sessionId).catch(() => {});
+      }
+      setAnalyticsSessionId(null);
+    };
+  }, [effectiveUserId, lesson]);
+
+  const logBreakDecision = useCallback(
+    async (eventType: "break_accepted" | "break_declined") => {
+      if (!analyticsSessionId || !effectiveUserId || !isUuid(effectiveUserId)) return;
+      await ingestAnalyticsEvent({
+        event_type: eventType,
+        timestamp: new Date().toISOString(),
+        user_id: effectiveUserId,
+        session_id: analyticsSessionId,
+        data: { reason: "lesson_viewer_drift_banner" },
+      }).catch(() => {});
+      setDriftBanner(null);
+    },
+    [analyticsSessionId, effectiveUserId],
+  );
+
+  const {
+    quiz,
+    quizAnswers,
+    quizSubmitted,
+    attemptNumber,
+    retryQuiz,
+    retryPending,
+    lastScore,
+    setQuizAnswers,
+    startQuizAttempt,
+    resetQuizState,
+    submitQuiz,
+    startRetryAttempt,
+  } = useTwoAttemptQuizController({
+    generateQuiz: async (attempt, excludeQuestionIds) => {
+      if (!lesson) {
+        throw new Error("Lesson is required to generate a quiz.");
+      }
+      return generateLessonQuiz(lesson, { attemptNumber: attempt, excludeQuestionIds });
+    },
+    onAttemptStart: () => {
+      setHintLevels({});
+      questionStartedAtRef.current = {};
+      answerSelectedAtRef.current = {};
+      quizStartedAtRef.current = Date.now();
+      quizStartedIngestKeyRef.current = null;
+      setQuizRunId(newQuizRunUuid());
+    },
+    onAttemptComplete: async (result) => {
+      if (!lesson) return;
+      const { score, total, attemptNumber: attempt, quiz: completedQuiz, answers } = result;
+      const sessionPayload =
+        analyticsSessionId && isUuid(effectiveUserId)
+          ? { session_id: analyticsSessionId }
+          : {};
+
+      logWithUser({
+        event: "quiz_submit",
+        lesson_id: lesson.lesson_id,
+        answers,
+        quiz_score: score,
+        quiz_total: total,
+        attempt_number: attempt,
+        ...sessionPayload,
+      });
+      logWithUser({
+        event: "quiz_completed",
+        lesson_id: lesson.lesson_id,
+        quiz_score: score,
+        quiz_total: total,
+        attempt_number: attempt,
+        lesson_title: lesson.title ?? "Unknown Lesson",
+        subject: lesson.quiz_context?.subject ?? "math",
+        grade_level: lesson.quiz_context?.grade_level ?? 0,
+        ...sessionPayload,
+      });
+
+      if (
+        analyticsSessionId &&
+        effectiveUserId &&
+        isUuid(effectiveUserId) &&
+        quizRunId &&
+        isUuid(quizRunId)
+      ) {
+        const submitAt = Date.now();
+        const elapsedMs =
+          quizStartedAtRef.current !== null
+            ? Math.max(1, submitAt - quizStartedAtRef.current)
+            : total * 2000;
+        const lessonMs = Math.max(1, submitAt - (lessonOpenedAtRef.current ?? submitAt));
+        const orderedIds = completedQuiz.questions.map((qu) => qu.question_id);
+
+        for (let i = 0; i < completedQuiz.questions.length; i++) {
+          const qu = completedQuiz.questions[i]!;
+          const selectedAt = answerSelectedAtRef.current[qu.question_id] ?? submitAt;
+          const startedAt = questionStartedAtRef.current[qu.question_id] ?? quizStartedAtRef.current ?? submitAt;
+          const responseLatencyMs = Math.max(1, selectedAt - startedAt);
+          let idleMs = 0;
+          if (i === 0) {
+            idleMs = Math.max(0, selectedAt - (quizStartedAtRef.current ?? selectedAt));
+          } else {
+            const prevId = orderedIds[i - 1]!;
+            const prevAt = answerSelectedAtRef.current[prevId] ?? quizStartedAtRef.current ?? selectedAt;
+            idleMs = Math.max(0, selectedAt - prevAt);
+          }
+          const correctOption = qu.options.find((opt) => !opt.is_distractor);
+          const isCorrect = !!(correctOption && answers[qu.question_id] === correctOption.option_id);
+          const chosen = qu.options.find((opt) => opt.option_id === answers[qu.question_id]);
+          try {
+            const raw = await ingestAnalyticsEvent({
+              event_type: "question_answered",
+              timestamp: new Date().toISOString(),
+              user_id: effectiveUserId,
+              session_id: analyticsSessionId,
+              data: {
+                question_id: qu.question_id,
+                answer: answers[qu.question_id] ?? "",
+                is_correct: isCorrect,
+                response_latency_ms: responseLatencyMs,
+                idle_ms: idleMs,
+                lesson_id: lesson.lesson_id,
+                misconception_type: chosen?.misconception_type ?? null,
+                attempt_number: attempt,
+              },
+            });
+            const res = raw as QuestionAnsweredIngestResponse;
+            if (res.drift === true) {
+              setDriftBanner({
+                action: String(res.recommended_action ?? "continue"),
+                rationale: String(res.rationale ?? ""),
+              });
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+
+        await ingestAnalyticsEvent({
+          event_type: "quiz_completed",
+          timestamp: new Date().toISOString(),
+          user_id: effectiveUserId,
+          session_id: analyticsSessionId,
+          data: {
+            quiz_id: quizRunId,
+            score,
+            total_questions: total,
+            time_spent_ms: elapsedMs,
+            lesson_id: lesson.lesson_id,
+            attempt_number: attempt,
+            difficulty_band:
+              total > 0 && score / total >= 0.8
+                ? "hard"
+                : total > 0 && score / total <= 0.4
+                  ? "easy"
+                  : "medium",
+          },
+        }).catch(() => {});
+
+        await ingestAnalyticsEvent({
+          event_type: "lesson_completed",
+          timestamp: new Date().toISOString(),
+          user_id: effectiveUserId,
+          session_id: analyticsSessionId,
+          data: {
+            lesson_id: lesson.lesson_id,
+            time_spent_ms: lessonMs,
+          },
+        }).catch(() => {});
+      }
+    },
+  });
+
+  const handleQuizSubmit = useCallback(async () => {
+    if (!lesson) return;
+    const result = await submitQuiz();
+    if (!result || !result.shouldRetry) {
+      return;
+    }
+
+    try {
+      const motivation = await requestMotivation({
+        user_id: feedbackUserId,
+        session_id: feedbackSessionId,
+        error_count: result.total - result.score,
+        question_context: lesson.quiz_context.subject,
+      });
+      showFeedback(
+        "Let's try a new quiz",
+        `You scored ${result.score} out of ${result.total}. ${motivation.message}`,
+        { isMotivation: true },
+      );
+    } catch {
+      showFeedback("Let's try a new quiz", `You scored ${result.score} out of ${result.total}. Try again with a fresh set of questions.`, { isMotivation: true });
+    }
+  }, [feedbackSessionId, feedbackUserId, lesson, showFeedback, submitQuiz]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1243,88 +1465,25 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
 
   useEffect(() => {
     setCurrentSection(0);
-    setQuiz(null);
-    setQuizAnswers({});
-    setQuizSubmitted(false);
+    resetQuizState();
     quizStartedAtRef.current = null;
     quizStartedIngestKeyRef.current = null;
+    questionStartedAtRef.current = {};
+    answerSelectedAtRef.current = {};
     setQuizRunId(null);
     lessonOpenedAtRef.current = null;
+    setDriftBanner(null);
   }, [lessonId]);
-
-  useEffect(() => {
-    if (!lesson || !effectiveUserId || !isUuid(effectiveUserId)) {
-      setAnalyticsSessionId(null);
-      return;
-    }
-
-    let cancelled = false;
-    const createdSessionIds: string[] = [];
-
-    createLearningSession(effectiveUserId)
-      .then((res) => {
-        createdSessionIds.push(res.session_id);
-        if (cancelled) {
-          void endLearningSession(res.session_id).catch(() => {});
-          return;
-        }
-        setAnalyticsSessionId(res.session_id);
-        lessonOpenedAtRef.current = Date.now();
-        void ingestAnalyticsEvent({
-          event_type: "lesson_started",
-          timestamp: new Date().toISOString(),
-          user_id: effectiveUserId,
-          session_id: res.session_id,
-          data: {
-            lesson_id: lesson.lesson_id,
-            lesson_title: lesson.title,
-            subject: lesson.quiz_context.subject,
-            grade_level: lesson.quiz_context.grade_level,
-          },
-        }).catch(() => {});
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setAnalyticsSessionId(null);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-      for (const sid of createdSessionIds) {
-        void endLearningSession(sid).catch(() => {});
-      }
-    };
-  }, [lesson?.lesson_id, effectiveUserId, lesson]);
-
-  useEffect(() => {
-    if (!quiz || !quizRunId || !analyticsSessionId || !effectiveUserId || !isUuid(effectiveUserId) || !lesson) {
-      return;
-    }
-    const ingestKey = `${quizRunId}:${lesson.lesson_id}:${quiz.questions.map((q) => q.question_id).join(",")}`;
-    if (quizStartedIngestKeyRef.current === ingestKey) {
-      return;
-    }
-    quizStartedIngestKeyRef.current = ingestKey;
-    quizStartedAtRef.current = Date.now();
-    void ingestAnalyticsEvent({
-      event_type: "quiz_started",
-      timestamp: new Date().toISOString(),
-      user_id: effectiveUserId,
-      session_id: analyticsSessionId,
-      data: {
-        quiz_id: quizRunId,
-        lesson_id: lesson.lesson_id,
-        question_count: quiz.questions.length,
-      },
-    }).catch(() => {});
-  }, [quiz, quizRunId, analyticsSessionId, effectiveUserId, lesson]);
 
   useEffect(() => {
     if (currentSection >= sections.length && sections.length) {
       setCurrentSection(sections.length - 1);
     }
   }, [currentSection, sections.length]);
+
+  useEffect(() => {
+    setDriftBanner(null);
+  }, [currentSection]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1356,12 +1515,12 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
       return;
     }
 
-    logWithUser({
+    void logLessonEvent({
       event: "section_view",
       lesson_id: lesson.lesson_id,
       section: sections[currentSection].title,
     });
-  }, [currentSection, lesson, sections, logWithUser]);
+  }, [currentSection, lesson, sections]);
 
   const fontClass = fontSize === "A" ? "text-base" : fontSize === "A+" ? "text-lg" : "text-xl";
 
@@ -1394,6 +1553,7 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
   }
 
   const answeredAllQuestions = quiz ? quiz.questions.every((question) => quizAnswers[question.question_id]) : false;
+  const failedFirstAttempt = lastScore?.total && attemptNumber === 1 ? lastScore.score < 3 : false;
 
   return (
     <div className={clsx("min-h-screen bg-[linear-gradient(135deg,#fff4cf_0%,#ffedc0_45%,#d5edff_100%)]", highContrast && "bg-black text-white")}>
@@ -1483,6 +1643,68 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
           <SectionNavigation sections={sections} currentSection={currentSection} onSelect={setCurrentSection} />
 
           <article className={clsx("space-y-6", fontClass)}>
+            {driftBanner ? (
+              <div
+                role="alert"
+                className="rounded-[2rem] border-2 border-amber-200 bg-[#fff8e8] px-5 py-4 shadow-[0_12px_32px_rgba(126,87,0,0.12)]"
+              >
+                <p className="font-['Plus_Jakarta_Sans'] text-sm font-black text-[#7e5700]">Focus check-in</p>
+                {driftBanner.action === "recap" ? (
+                  <p className="mt-2 font-['Be_Vietnam_Pro'] text-sm leading-7 text-[#5b4c2c]">
+                    Looks like focus has dipped — want a quick recap before the next section?
+                  </p>
+                ) : driftBanner.action === "break" ? (
+                  <p className="mt-2 font-['Be_Vietnam_Pro'] text-sm leading-7 text-[#5b4c2c]">
+                    You&apos;ve been working hard — a short break will help you come back stronger.
+                  </p>
+                ) : (
+                  <p className="mt-2 font-['Be_Vietnam_Pro'] text-sm leading-7 text-[#5b4c2c]">
+                    {driftBanner.rationale || "Take a breath — steady pacing helps learning stick."}
+                  </p>
+                )}
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {driftBanner.action === "recap" ? (
+                    <button
+                      type="button"
+                      className="rounded-full bg-[#8a5d00] px-4 py-2 font-['Plus_Jakarta_Sans'] text-xs font-black text-white"
+                      onClick={() => {
+                        setCurrentSection(0);
+                        setDriftBanner(null);
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                    >
+                      Take a Recap
+                    </button>
+                  ) : null}
+                  {driftBanner.action === "break" ? (
+                    <>
+                      <button
+                        type="button"
+                        className="rounded-full bg-amber-500 px-4 py-2 font-['Plus_Jakarta_Sans'] text-xs font-black text-white"
+                        onClick={() => void logBreakDecision("break_accepted")}
+                      >
+                        Take a Break
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-full bg-white px-4 py-2 font-['Plus_Jakarta_Sans'] text-xs font-black text-[#8a5d00] ring-2 ring-[#ffba38]"
+                        onClick={() => void logBreakDecision("break_declined")}
+                      >
+                        Keep Going
+                      </button>
+                    </>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="rounded-full bg-white/90 px-4 py-2 font-['Plus_Jakarta_Sans'] text-xs font-black text-[#5b4c2c] ring-1 ring-[#e8dfc8]"
+                    onClick={() => setDriftBanner(null)}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
             <div className="rounded-[2rem] bg-white/84 p-6 shadow-[0_18px_36px_rgba(60,53,18,0.12)]">
               <h2 className="font-['Plus_Jakarta_Sans'] text-3xl font-black tracking-[-0.05em] text-[#1f1b00]">{sections[currentSection]?.title ?? "Adventure Start"}</h2>
               <div className="mt-5">
@@ -1523,13 +1745,8 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
                   aria-label="Generate quiz for this lesson"
                   onClick={async () => {
                     setQuizPending(true);
-                    const generatedQuiz = await generateLessonQuiz(lesson, {
-                      userId: effectiveUserId && isUuid(effectiveUserId) ? effectiveUserId : undefined,
-                    });
-                    setQuizRunId(newQuizRunUuid());
-                    setQuiz(generatedQuiz);
-                    setQuizAnswers({});
-                    setQuizSubmitted(false);
+                    const generatedQuiz = await generateLessonQuiz(lesson, { attemptNumber: 1 });
+                    startQuizAttempt(generatedQuiz, 1);
                     setQuizPending(false);
                   }}
                   className="inline-flex items-center gap-2 rounded-full bg-[#cae6ff] px-5 py-3 font-['Plus_Jakarta_Sans'] text-sm font-black text-[#004b70]"
@@ -1551,6 +1768,7 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
                     return (
                       <fieldset key={question.question_id} className="rounded-[1.5rem] bg-[#fff9e8] p-5 shadow-sm">
                         <legend className="font-['Plus_Jakarta_Sans'] text-lg font-black text-[#1f1b00]">{questionIndex + 1}. {question.question_text}</legend>
+                        <QuizQuestionMountTracker questionId={question.question_id} startedRef={questionStartedAtRef} />
                         <div className="mt-4 space-y-3">
                           {question.options.map((option) => {
                             const selected = selectedOptionId === option.option_id;
@@ -1572,7 +1790,10 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
                                   value={option.option_id}
                                   checked={selected}
                                   disabled={quizSubmitted}
-                                  onChange={() => setQuizAnswers((current) => ({ ...current, [question.question_id]: option.option_id }))}
+                                  onChange={() => {
+                                    answerSelectedAtRef.current[question.question_id] = Date.now();
+                                    setQuizAnswers((current) => ({ ...current, [question.question_id]: option.option_id }));
+                                  }}
                                 />
                                 <span>{option.option_text}</span>
                               </label>
@@ -1617,120 +1838,39 @@ export function LessonViewerExperience({ lessonId }: { lessonId: string }) {
                   <button
                     type="button"
                     disabled={!answeredAllQuestions || quizSubmitted}
-                    onClick={() => {
-                      setQuizSubmitted(true);
-                      const score = buildQuizScore(quiz, quizAnswers);
-                      const total = quiz.questions.length;
-                      const sessionPayload =
-                        analyticsSessionId && isUuid(effectiveUserId)
-                          ? { session_id: analyticsSessionId }
-                          : {};
-
-                      logWithUser({
-                        event: "quiz_submit",
-                        lesson_id: lesson.lesson_id,
-                        answers: quizAnswers,
-                        quiz_score: score,
-                        quiz_total: total,
-                        ...sessionPayload,
-                      });
-                      logWithUser({
-                        event: "quiz_completed",
-                        lesson_id: lesson.lesson_id,
-                        quiz_score: score,
-                        quiz_total: total,
-                        ...sessionPayload,
-                      });
-                      logWithUser({
-                        event: "lesson_completed",
-                        lesson_id: lesson.lesson_id,
-                        quiz_score: score,
-                        quiz_total: total,
-                        ...sessionPayload,
-                      });
-
-                      if (
-                        analyticsSessionId &&
-                        effectiveUserId &&
-                        isUuid(effectiveUserId) &&
-                        quizRunId &&
-                        isUuid(quizRunId)
-                      ) {
-                        const elapsedMs =
-                          quizStartedAtRef.current !== null
-                            ? Math.max(1, Date.now() - quizStartedAtRef.current)
-                            : total * 2000;
-                        const perQuestionMs = Math.max(300, Math.floor(elapsedMs / Math.max(total, 1)));
-                        const lessonMs = Math.max(
-                          1,
-                          Date.now() - (lessonOpenedAtRef.current ?? Date.now()),
-                        );
-
-                        for (const q of quiz.questions) {
-                          const correctOption = q.options.find((opt) => !opt.is_distractor);
-                          const isCorrect = !!(
-                            correctOption && quizAnswers[q.question_id] === correctOption.option_id
-                          );
-                          const chosen = q.options.find((opt) => opt.option_id === quizAnswers[q.question_id]);
-                          void ingestAnalyticsEvent({
-                            event_type: "question_answered",
-                            timestamp: new Date().toISOString(),
-                            user_id: effectiveUserId,
-                            session_id: analyticsSessionId,
-                            data: {
-                              question_id: q.question_id,
-                              answer: quizAnswers[q.question_id] ?? "",
-                              is_correct: isCorrect,
-                              response_latency_ms: perQuestionMs,
-                              lesson_id: lesson.lesson_id,
-                              misconception_type: chosen?.misconception_type ?? null,
-                            },
-                          }).catch(() => {});
-                        }
-
-                        void ingestAnalyticsEvent({
-                          event_type: "quiz_completed",
-                          timestamp: new Date().toISOString(),
-                          user_id: effectiveUserId,
-                          session_id: analyticsSessionId,
-                          data: {
-                            quiz_id: quizRunId,
-                            score,
-                            total_questions: total,
-                            time_spent_ms: elapsedMs,
-                            lesson_id: lesson.lesson_id,
-                            difficulty_band:
-                              total > 0 && score / total >= 0.8
-                                ? "hard"
-                                : total > 0 && score / total <= 0.4
-                                  ? "easy"
-                                  : "medium",
-                          },
-                        }).catch(() => {});
-
-                        void ingestAnalyticsEvent({
-                          event_type: "lesson_completed",
-                          timestamp: new Date().toISOString(),
-                          user_id: effectiveUserId,
-                          session_id: analyticsSessionId,
-                          data: {
-                            lesson_id: lesson.lesson_id,
-                            time_spent_ms: lessonMs,
-                          },
-                        }).catch(() => {});
-                      }
-
-                      // Check score and trigger motivational nudge for low scores
-                      if (total > 0 && score / total < 0.5) {
-                        void handleMotivationNudge(total - score, lesson.quiz_context.subject);
-                      }
-                    }}
+                    onClick={() => void handleQuizSubmit()}
                     className="rounded-full bg-[#8a5d00] px-5 py-3 font-['Plus_Jakarta_Sans'] text-sm font-black text-white disabled:opacity-40"
                   >
                     Submit Quiz
                   </button>
 
                   {quizSubmitted ? <QuizResultCard score={currentQuizScore} total={quiz.questions.length} /> : null}
+
+                  {quizSubmitted && failedFirstAttempt ? (
+                    <div className="mt-4 flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        disabled={!retryQuiz || retryPending}
+                        onClick={() => {
+                          if (!retryQuiz) return;
+                          startRetryAttempt();
+                        }}
+                        className="rounded-full bg-[#1f6feb] px-5 py-3 font-['Plus_Jakarta_Sans'] text-sm font-black text-white disabled:opacity-50"
+                      >
+                        {retryPending ? "Preparing new quiz..." : "Start second quiz"}
+                      </button>
+                      <span className="font-['Be_Vietnam_Pro'] text-sm font-semibold text-[#5b4c2c]">
+                        This is your last attempt.
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {effectiveUserId && isUuid(effectiveUserId) && analyticsSessionId ? (
+                <div className="mt-8 grid gap-5 md:grid-cols-2">
+                  <MiniTestPanel userId={effectiveUserId} sessionId={analyticsSessionId} />
+                  <SelfReportPanel userId={effectiveUserId} sessionId={analyticsSessionId} />
                 </div>
               ) : null}
             </section>

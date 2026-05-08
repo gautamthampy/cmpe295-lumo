@@ -1,8 +1,6 @@
 """Application configuration using Pydantic Settings."""
 from pydantic_settings import BaseSettings
-from pydantic import field_validator
 from functools import lru_cache
-from typing import Any
 
 
 class Settings(BaseSettings):
@@ -44,14 +42,10 @@ class Settings(BaseSettings):
     DEBUG_AUTH_TOKENS: bool = False
 
     # Gemini
-    GEMINI_API_KEY: str = "AIzaSyBZMjkBPEOnR1LOLptldJRuG46dSCkutfQ"
-    GEMINI_MODEL: str = "gemini-flash-latest"
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-2.5-flash"
     GEMINI_MAX_TOKENS: int = 8192
     GEMINI_TEMPERATURE: float = 0.7
-    # LLM provider routing (Ollama = local, no Google API key)
-    LLM_PROVIDER: str = "gemini"  # gemini | ollama
-    OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "llama3.1:8b"
 
     # Privacy
     DATA_RETENTION_DAYS: int = 90
@@ -77,7 +71,7 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     MAIL_FROM_EMAIL: str = "no-reply@lumo.local"
     MAIL_FROM_NAME: str = "LUMO"
-    MAIL_DELIVERY_MODE: str = "log"  # log = print to server logs; smtp = real send
+    MAIL_DELIVERY_MODE: str = "console"
 
     # LLM (Google Gemini API)
     #GEMINI_API_KEY: str = ""
@@ -86,17 +80,6 @@ class Settings(BaseSettings):
     #GEMINI_TEMPERATURE: float = 0.7
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
-
-    @field_validator("DEBUG", mode="before")
-    @classmethod
-    def parse_debug_value(cls, value: Any) -> Any:
-        if isinstance(value, str):
-            normalized = value.strip().lower()
-            if normalized in {"release", "prod", "production", "false", "0", "no", "off"}:
-                return False
-            if normalized in {"debug", "dev", "development", "true", "1", "yes", "on"}:
-                return True
-        return value
 
     @property
     def app_name(self) -> str:

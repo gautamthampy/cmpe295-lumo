@@ -60,14 +60,13 @@ export type LessonAnalyticsMetric = {
   title: string;
   subject: string;
   grade_level: number;
-  accessibility_score: number;
+
   quiz_pass_rate: number;
   status: string;
 };
 
 export type LessonAnalyticsSummary = {
   total_lessons: number;
-  avg_accessibility: number;
   avg_quiz_pass: number;
   lessons: LessonAnalyticsMetric[];
 };
@@ -131,14 +130,13 @@ export const PLAYFUL_FALLBACK_LESSONS: LessonSummary[] = [
 
 export const PLAYFUL_FALLBACK_ANALYTICS: LessonAnalyticsSummary = {
   total_lessons: PLAYFUL_FALLBACK_LESSONS.length,
-  avg_accessibility: 91,
   avg_quiz_pass: 84,
   lessons: PLAYFUL_FALLBACK_LESSONS.map((lesson, index) => ({
     lesson_id: lesson.lesson_id,
     title: lesson.title,
     subject: lesson.subject,
     grade_level: lesson.grade_level,
-    accessibility_score: 88 + (index % 4) * 3,
+
     quiz_pass_rate: 72 + (index % 5) * 5,
     status: lesson.status,
   })),
@@ -226,17 +224,46 @@ export function buildFallbackQuiz(lesson: LessonRenderPayload): LessonQuizPayloa
           { option_id: "b", option_text: "Give up right away", is_distractor: true, misconception_type: "confidence-drop" },
         ],
       },
+      {
+        question_id: `${lesson.lesson_id}-q3`,
+        question_text: "Which choice shows a good learning habit?",
+        options: [
+          { option_id: "a", option_text: "Checking your work as you go", is_distractor: false, misconception_type: null },
+          { option_id: "b", option_text: "Rushing without reading", is_distractor: true, misconception_type: "impulse" },
+        ],
+      },
+      {
+        question_id: `${lesson.lesson_id}-q4`,
+        question_text: "When you are stuck, what is a helpful next step?",
+        options: [
+          { option_id: "a", option_text: "Ask for a hint and try again", is_distractor: false, misconception_type: null },
+          { option_id: "b", option_text: "Quit the lesson", is_distractor: true, misconception_type: "avoidance" },
+        ],
+      },
+      {
+        question_id: `${lesson.lesson_id}-q5`,
+        question_text: "How can you remember this lesson later?",
+        options: [
+          { option_id: "a", option_text: "Explain it in your own words", is_distractor: false, misconception_type: null },
+          { option_id: "b", option_text: "Ignore it and move on", is_distractor: true, misconception_type: "forgetting" },
+        ],
+      },
+      {
+        question_id: `${lesson.lesson_id}-q6`,
+        question_text: "What should you do before you finish the lesson?",
+        options: [
+          { option_id: "a", option_text: "Check your answers once more", is_distractor: false, misconception_type: null },
+          { option_id: "b", option_text: "Skip the review", is_distractor: true, misconception_type: "careless" },
+        ],
+      },
     ],
   };
 }
 
-export async function fetchLessonSummaries(subject?: string, gradeLevel?: number) {
+export async function fetchLessonSummaries(subject?: string) {
   const params = new URLSearchParams();
   if (subject) {
     params.set("subject", subject);
-  }
-  if (gradeLevel) {
-    params.set("grade_level", String(gradeLevel));
   }
 
   const query = params.toString();
@@ -267,7 +294,7 @@ export async function fetchLessonAnalytics(studentId?: string) {
 
 export async function generateLessonQuiz(
   lesson: LessonRenderPayload,
-  opts?: { userId?: string; targetDifficulty?: "easy" | "medium" | "hard" },
+  options?: { attemptNumber?: number; excludeQuestionIds?: string[] },
 ) {
   try {
     return await authRequest<LessonQuizPayload>(`/lessons/${lesson.lesson_id}/quiz`, {
@@ -276,8 +303,8 @@ export async function generateLessonQuiz(
         lesson_id: lesson.lesson_id,
         quiz_context: lesson.quiz_context,
         misconception_tags: lesson.misconception_tags,
-        user_id: opts?.userId,
-        target_difficulty: opts?.targetDifficulty,
+        attempt_number: options?.attemptNumber,
+        exclude_question_ids: options?.excludeQuestionIds ?? [],
       }),
     });
   } catch {

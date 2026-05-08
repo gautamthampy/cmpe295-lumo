@@ -2,16 +2,12 @@ from __future__ import annotations
 
 import base64
 import json
-import logging
-from collections import defaultdict
-from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.catalog import CurriculumLesson, CurriculumModule, CurriculumSubject
-from app.models.events import UserEvent
 from app.schemas.lessons import (
     LessonAnalyticsMetricResponse,
     LessonAnalyticsSummaryResponse,
@@ -21,45 +17,7 @@ from app.schemas.lessons import (
 )
 from app.services.catalog import get_curriculum_lesson_entry, list_curriculum_lesson_entries
 
-logger = logging.getLogger(__name__)
-
 router = APIRouter(tags=["lessons"])
-
-# Matches `accessibility_score` in lesson render (0.9 → 90) when we have no per-learner telemetry.
-_CATALOG_ACCESSIBILITY_SCORE = 90
-
-
-def _aggregate_lesson_events_for_student(
-    db: Session, student_id: UUID
-) -> tuple[dict[str, list[float]], dict[str, int], set[str]]:
-    """Quiz pass rates, section views, and touched lesson ids from `events.user_events`."""
-    rates_by_lesson: dict[str, list[float]] = defaultdict(list)
-    sections_by_lesson: dict[str, int] = defaultdict(int)
-    touched_lessons: set[str] = set()
-    try:
-        rows = db.query(UserEvent).filter(UserEvent.user_id == student_id).all()
-    except Exception:
-        return {}, {}, set()
-    for row in rows:
-        payload = row.event_data if isinstance(row.event_data, dict) else {}
-        nested = payload.get("data") if isinstance(payload.get("data"), dict) else {}
-        ev = payload.get("event") or row.event_type
-        lid_raw = nested.get("lesson_id") or payload.get("lesson_id")
-        if lid_raw is None:
-            continue
-        lid = str(lid_raw).strip()
-        if not lid:
-            continue
-        touched_lessons.add(lid)
-
-        if ev in {"quiz_submit", "quiz_completed"}:
-            score = nested.get("quiz_score") if "quiz_score" in nested else payload.get("quiz_score")
-            total = nested.get("quiz_total") if "quiz_total" in nested else payload.get("quiz_total")
-            if isinstance(score, (int, float)) and isinstance(total, (int, float)) and float(total) > 0:
-                rates_by_lesson[lid].append(100.0 * float(score) / float(total))
-        elif ev == "section_view":
-            sections_by_lesson[lid] += 1
-    return dict(rates_by_lesson), dict(sections_by_lesson), touched_lessons
 
 
 def _activity_payload(activity: dict[str, object]) -> str:
@@ -223,61 +181,71 @@ def lesson_analytics_summary(
     student_id: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> LessonAnalyticsSummaryResponse:
-    entries = list_curriculum_lesson_entries(db)
+    import uuid
+    from app.models.events import UserEvent
 
-    student_uuid: UUID | None = None
+    query = db.query(UserEvent.event_data).filter(UserEvent.event_type == "quiz_completed")
+    
     if student_id:
         try:
-            student_uuid = UUID(student_id)
+            student_uuid = uuid.UUID(student_id)
+            query = query.filter(UserEvent.user_id == student_uuid)
         except ValueError:
-            student_uuid = None
+            pass
+            
+    events = query.all()
+    
+    lesson_stats = {}
+    for (raw_event_data,) in events:
+        event_data = raw_event_data.get("data") if "data" in raw_event_data else raw_event_data
+        
+        lesson_id = event_data.get("lesson_id")
+        quiz_score = event_data.get("quiz_score") if event_data.get("quiz_score") is not None else event_data.get("score")
+        quiz_total = event_data.get("quiz_total") if event_data.get("quiz_total") is not None else event_data.get("total_questions")
+        if lesson_id and quiz_score is not None and quiz_total:
+            try:
+                score_pct = (float(quiz_score) / float(quiz_total)) * 100
+                if lesson_id not in lesson_stats:
+                    lesson_stats[lesson_id] = {
+                        "scores": [],
+                        "title": event_data.get("lesson_title") or "Generated Quiz",
+                        "subject": event_data.get("subject") or "math",
+                        "grade_level": event_data.get("grade_level") or 0,
+                    }
+                lesson_stats[lesson_id]["scores"].append(score_pct)
+                if event_data.get("lesson_title"):
+                    lesson_stats[lesson_id]["title"] = event_data.get("lesson_title")
+                if event_data.get("subject"):
+                    lesson_stats[lesson_id]["subject"] = event_data.get("subject")
+                if event_data.get("grade_level"):
+                    lesson_stats[lesson_id]["grade_level"] = event_data.get("grade_level")
+            except (ValueError, ZeroDivisionError):
+                pass
 
-    rates_by_lesson: dict[str, list[float]] = {}
-    sections_by_lesson: dict[str, int] = {}
-    touched_lessons: set[str] = set()
-    if student_uuid:
-        rates_by_lesson, sections_by_lesson, touched_lessons = _aggregate_lesson_events_for_student(db, student_uuid)
-        if not touched_lessons:
-            return LessonAnalyticsSummaryResponse(total_lessons=0, avg_accessibility=0, avg_quiz_pass=0, lessons=[])
-
-    metrics: list[LessonAnalyticsMetricResponse] = []
-    for subject, _, lesson in entries:
-        lid = lesson.external_id
-        if student_uuid and lid not in touched_lessons:
-            continue
-
-        if student_uuid and rates_by_lesson.get(lid):
-            quiz_pass = round(sum(rates_by_lesson[lid]) / len(rates_by_lesson[lid]))
-        else:
-            quiz_pass = 0
-
-        if student_uuid and sections_by_lesson.get(lid, 0) > 0:
-            accessibility_score = min(100, 65 + min(sections_by_lesson[lid], 7) * 5)
-        elif student_uuid:
-            accessibility_score = 0
-        else:
-            accessibility_score = _CATALOG_ACCESSIBILITY_SCORE
-
+    metrics = []
+    for lesson_id, stats in lesson_stats.items():
+        scores = stats["scores"]
+        quiz_pass_rate = int(sum(scores) / len(scores)) if scores else 0
+        
         metrics.append(
             LessonAnalyticsMetricResponse(
-                lesson_id=lid,
-                title=lesson.title,
-                subject=subject.slug,
-                grade_level=subject.grade_level,
-                accessibility_score=accessibility_score,
-                quiz_pass_rate=quiz_pass,
+                lesson_id=str(lesson_id),
+                title=stats["title"],
+                subject=stats["subject"],
+                grade_level=stats["grade_level"],
+
+                quiz_pass_rate=quiz_pass_rate,
                 status="active",
             )
         )
 
     if not metrics:
-        return LessonAnalyticsSummaryResponse(total_lessons=0, avg_accessibility=0, avg_quiz_pass=0, lessons=[])
+        return LessonAnalyticsSummaryResponse(total_lessons=0, avg_quiz_pass=0, lessons=[])
 
-    avg_accessibility = round(sum(metric.accessibility_score for metric in metrics) / len(metrics))
     avg_quiz_pass = round(sum(metric.quiz_pass_rate for metric in metrics) / len(metrics))
+
     return LessonAnalyticsSummaryResponse(
         total_lessons=len(metrics),
-        avg_accessibility=avg_accessibility,
         avg_quiz_pass=avg_quiz_pass,
         lessons=metrics,
     )
@@ -313,37 +281,16 @@ def render_lesson(lesson_id: str, db: Session = Depends(get_db)) -> LessonRender
 
 from datetime import datetime, timezone
 from pydantic import BaseModel as _PydanticBaseModel
-from fastapi import Body
-
-from app.models.catalog import CurriculumLesson
-from app.models.learner_mastery import LearnerMasteryScore
 from app.services.gemini_service import get_gemini_service
 from app.schemas.lessons import QuizOption, QuizQuestion, QuizResponse
 
 
 class _QuizGenerateRequest(_PydanticBaseModel):
-    # lesson_id is provided by the path; body may omit it.
-    lesson_id: str | None = None
+    lesson_id: str
     quiz_context: dict | None = None
     misconception_tags: list[str] = []
-    user_id: str | None = None
-    target_difficulty: str | None = None  # easy | medium | hard
-
-
-def _choose_difficulty_band(score: float | None) -> str:
-    """
-    Phase 3 rule (workbook):
-    - ≥80% → harder
-    - ≤40% → easier
-    - else → medium
-    """
-    if score is None:
-        return "medium"
-    if score >= 0.8:
-        return "hard"
-    if score <= 0.4:
-        return "easy"
-    return "medium"
+    attempt_number: int | None = None
+    exclude_question_ids: list[str] = []
 
 
 def _build_mock_quiz(lesson_id: str, subject: str, grade_level: int, tags: list[str]) -> QuizResponse:
@@ -381,45 +328,36 @@ def _build_mock_quiz(lesson_id: str, subject: str, grade_level: int, tags: list[
                 ],
                 difficulty="medium",
             ),
+            QuizQuestion(
+                question_id=f"{lesson_id}-q4",
+                question_text="Which choice shows a good learning habit?",
+                options=[
+                    QuizOption(option_id="a", option_text="Checking your work as you go", is_distractor=False),
+                    QuizOption(option_id="b", option_text="Rushing without reading", is_distractor=True, misconception_type="impulse"),
+                ],
+                difficulty="medium",
+            ),
+            QuizQuestion(
+                question_id=f"{lesson_id}-q5",
+                question_text="When you are stuck, what is a helpful next step?",
+                options=[
+                    QuizOption(option_id="a", option_text="Ask for a hint and try again", is_distractor=False),
+                    QuizOption(option_id="b", option_text="Quit the lesson", is_distractor=True, misconception_type="avoidance"),
+                ],
+                difficulty="medium",
+            ),
+            QuizQuestion(
+                question_id=f"{lesson_id}-q6",
+                question_text=f"How can you remember {tag_label} later?",
+                options=[
+                    QuizOption(option_id="a", option_text="Explain it in your own words", is_distractor=False),
+                    QuizOption(option_id="b", option_text="Ignore it and move on", is_distractor=True, misconception_type="forgetting"),
+                ],
+                difficulty="hard",
+            ),
         ],
         generated_at=datetime.now(timezone.utc).isoformat(),
     )
-
-
-def _extract_json_array_from_llm_text(raw: str) -> str:
-    """Pull JSON array or object from LLM output that may include markdown fences or preamble."""
-    text = raw.strip()
-    if "```" in text:
-        for chunk in text.split("```"):
-            chunk = chunk.strip()
-            if chunk.lower().startswith("json"):
-                chunk = chunk[4:].strip()
-            if chunk.startswith(("[", "{")):
-                text = chunk
-                break
-    text = text.strip()
-    start = text.find("[")
-    if start >= 0:
-        depth = 0
-        for i in range(start, len(text)):
-            if text[i] == "[":
-                depth += 1
-            elif text[i] == "]":
-                depth -= 1
-                if depth == 0:
-                    return text[start : i + 1]
-    start = text.find("{")
-    if start < 0:
-        raise ValueError("No JSON object or array found in model output")
-    depth = 0
-    for i in range(start, len(text)):
-        if text[i] == "{":
-            depth += 1
-        elif text[i] == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start : i + 1]
-    raise ValueError("Unbalanced JSON braces in model output")
 
 
 @router.post("/lessons/{lesson_id}/quiz", response_model=QuizResponse)
@@ -431,91 +369,48 @@ async def generate_quiz(
     """
     Generate a quiz for a lesson.
 
-    Uses GeminiService (Gemini API or local Ollama per LLM_PROVIDER) when a model
-    is configured; falls back to deterministic mock questions if the call fails or
-    the response is not valid quiz JSON.
+    Uses GeminiService for dynamic question generation when GEMINI_API_KEY
+    is set; falls back to deterministic mock questions otherwise.
     """
     entry = get_curriculum_lesson_entry(db, lesson_id)
     if entry is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lesson not found.")
 
     subject, _module, lesson = entry
-    tags = list(lesson.tags or [])
+    tags = list(payload.misconception_tags) if payload and payload.misconception_tags else list(lesson.tags or [])
+    exclude_ids = set(payload.exclude_question_ids or []) if payload else set()
     gemini = get_gemini_service()
 
-    payload_obj = payload or _QuizGenerateRequest(lesson_id=lesson_id)
-
-    # Adaptive difficulty target (Phase 3): infer from mastery if possible.
-    target = (payload_obj.target_difficulty or "").strip().lower() or None
-    if target not in {None, "easy", "medium", "hard"}:
-        target = None
-
-    mastery_score: float | None = None
-    if target is None and payload_obj.user_id:
-        try:
-            user_uuid = UUID(str(payload_obj.user_id))
-            cl = (
-                db.query(CurriculumLesson)
-                .filter(CurriculumLesson.external_id == lesson_id)
-                .first()
-            )
-            if cl is not None:
-                lesson_uuid = UUID(str(cl.id))
-                row = (
-                    db.query(LearnerMasteryScore)
-                    .filter(
-                        LearnerMasteryScore.user_id == user_uuid,
-                        LearnerMasteryScore.lesson_id == lesson_uuid,
-                    )
-                    .first()
-                )
-                if row is not None:
-                    mastery_score = float(row.score)
-        except Exception:
-            mastery_score = None
-
-    difficulty_band = target or _choose_difficulty_band(mastery_score)
-
     if gemini.model:
-        prompt = f"""Generate 3 multiple-choice quiz questions for a Grade {subject.grade_level} {subject.name} lesson titled "{lesson.title}".
+        import json as _json
 
-Difficulty target: {difficulty_band}. Use difficulty values from easy|medium|hard, and ensure at least 2/3 questions match the target.
+        prompt = f"""Generate 6 multiple-choice quiz questions for a Grade {subject.grade_level} {subject.name} lesson titled "{lesson.title}".
 
 Misconception tags to probe: {', '.join(tags) if tags else 'general understanding'}
-
-Each question MUST include at least one distractor whose misconception_type is one of the misconception tags above.
+    Exclude these question_ids (do not repeat them): {', '.join(sorted(exclude_ids)) if exclude_ids else 'none'}
 
 Return a JSON array of objects:
 [{{"question_id":"q1","question_text":"...","options":[{{"option_id":"a","option_text":"...","is_distractor":false,"misconception_type":null}},{{"option_id":"b","option_text":"...","is_distractor":true,"misconception_type":"tag"}}],"difficulty":"easy|medium|hard"}}]
 
-Return ONLY valid JSON — no markdown fences, no explanation before or after the array."""
+Return ONLY valid JSON."""
 
         try:
             raw = await gemini._generate_content(prompt)
-            clean = _extract_json_array_from_llm_text(raw)
-            questions_data = json.loads(clean)
-            if isinstance(questions_data, dict):
-                questions_data = [questions_data]
-            questions = [QuizQuestion.model_validate(q) for q in questions_data]
-            # If the model ignores the target, still return what it generated.
+            clean = raw.strip()
+            if clean.startswith("```"):
+                clean = "\n".join(clean.split("\n")[1:-1])
+            questions_data = _json.loads(clean)
+            questions = [QuizQuestion(**q) for q in questions_data if q.get("question_id") not in exclude_ids]
             return QuizResponse(
                 quiz_id=f"quiz-{lesson_id}",
                 lesson_id=lesson_id,
                 questions=questions,
                 generated_at=datetime.now(timezone.utc).isoformat(),
             )
-        except Exception as exc:
-            logger.warning(
-                "Quiz LLM output unusable for lesson %s; using mock quiz. Reason: %s",
-                lesson_id,
-                exc,
-            )
+        except Exception:
+            pass  # Fall through to mock
 
-    quiz = _build_mock_quiz(lesson_id, subject.name, subject.grade_level, tags)
-    # Nudge mock difficulty band to match target.
-    for q in quiz.questions:
-        q.difficulty = "easy" if difficulty_band == "easy" else "hard" if difficulty_band == "hard" else q.difficulty
-    return quiz
+    return _build_mock_quiz(lesson_id, subject.name, subject.grade_level, tags)
 
 
 # ---------------------------------------------------------------------------
@@ -526,27 +421,16 @@ Return ONLY valid JSON — no markdown fences, no explanation before or after th
 @router.post("/lessons/events")
 def log_lesson_event(payload: dict, db: Session = Depends(get_db)):
     """Log a frontend lesson event (quiz_submit, etc.)."""
-    raw_uid = payload.get("user_id")
-    try:
-        user_uuid = UUID(str(raw_uid)) if raw_uid else uuid4()
-    except (ValueError, TypeError):
-        user_uuid = uuid4()
-
-    raw_sid = payload.get("session_id")
-    try:
-        session_uuid = UUID(str(raw_sid)) if raw_sid else uuid4()
-    except (ValueError, TypeError):
-        session_uuid = uuid4()
+    from app.models.events import UserEvent
+    from uuid import uuid4
 
     try:
-        db.add(
-            UserEvent(
-                user_id=user_uuid,
-                session_id=session_uuid,
-                event_type=str(payload.get("event", "unknown")),
-                event_data=payload,
-            )
-        )
+        db.add(UserEvent(
+            user_id=payload.get("user_id", str(uuid4())),
+            session_id=payload.get("session_id", str(uuid4())),
+            event_type=payload.get("event", "unknown"),
+            event_data=payload,
+        ))
         db.commit()
     except Exception:
         db.rollback()

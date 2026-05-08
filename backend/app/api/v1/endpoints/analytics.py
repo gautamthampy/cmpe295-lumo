@@ -10,9 +10,8 @@ from datetime import datetime, timedelta, timezone
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
-from pydantic import ValidationError
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
@@ -22,12 +21,10 @@ from app.constants.analytics_events import (
     PERSIST_ONLY_EVENT_TYPES,
     SELF_REPORT_EVENT_TYPES,
 )
-from app.core.config import Settings, get_settings, settings
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.attention import AttentionMetric
-from app.models.catalog import CurriculumLesson
 from app.models.events import UserEvent
-from app.models.learner_mastery import LearnerMasteryScore
 from app.models.session import SessionModel
 from app.schemas.analytics import (
     AttentionMiniTestCompletedData,
@@ -48,23 +45,8 @@ from app.services.attention_engine import (
     rationale_from_score,
     update_features_and_compute,
 )
-from app.services.analytics_dashboard import build_dashboard_payload
 from app.services.attention_peaks import get_attention_peaks_for_user
-from app.services.auth import get_session
-from app.services.auth_service import get_auth_service
-from app.services.learner_mastery import upsert_mastery_from_quiz_completed
 from app.services.mini_test_scoring import mini_test_score_to_action
-from app.services.telemetry_validation import (
-    lesson_completed_follows_lesson_started,
-    lesson_started_precedes_question,
-    quiz_completed_follows_quiz_started,
-    quiz_started_follows_lesson_started,
-)
-from app.schemas.telemetry import (
-    QuestionAnsweredData,
-    QuizCompletedData,
-    validate_persist_only_payload,
-)
 
 router = APIRouter()
 
@@ -183,113 +165,30 @@ def ingest_event(event: Event, db: Session = Depends(get_db)):
         db.commit()
         return JSONResponse(status_code=202, content={"detail": "Self-report stored."})
 
-    _STRICT_PERSIST_TYPES = frozenset(
-        {"lesson_started", "lesson_completed", "quiz_started", "quiz_completed"}
-    )
-
-    if event.event_type == "question_answered":
-        try:
-            qa = QuestionAnsweredData.model_validate(event.data)
-        except ValidationError as e:
-            return JSONResponse(
-                status_code=422,
-                content={"detail": "Invalid question_answered payload", "errors": e.errors()},
-            )
-        session_row = db.get(SessionModel, event.session_id)
-        if session_row is None:
-            return JSONResponse(
-                status_code=400,
-                content={"detail": "Unknown session_id. Create a session before logging events."},
-            )
-        if not lesson_started_precedes_question(db, event.session_id, event.timestamp):
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "detail": "Temporal violation: lesson_started must precede question_answered in this session.",
-                    "code": "temporal_violation",
-                },
-            )
-        # Reconcile validated fields back for downstream attention logic
-        event.data.update(
-            {
-                "question_id": qa.question_id,
-                "answer": qa.answer,
-                "is_correct": qa.is_correct,
-                "response_latency_ms": qa.response_latency_ms,
-            }
-        )
-        if qa.lesson_id is not None:
-            event.data["lesson_id"] = qa.lesson_id
-        if qa.idle_ms is not None:
-            event.data["idle_ms"] = qa.idle_ms
-
-    elif event.event_type in PERSIST_ONLY_EVENT_TYPES:
-        session_row = db.get(SessionModel, event.session_id)
-        if session_row is None:
-            return JSONResponse(
-                status_code=400,
-                content={"detail": "Unknown session_id. Create a session before logging events."},
-            )
-        # Temporal ordering rules (Phase 3 hardening)
-        if event.event_type == "quiz_started" and not quiz_started_follows_lesson_started(
-            db, event.session_id, event.timestamp
-        ):
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "detail": "Temporal violation: lesson_started must precede quiz_started in this session.",
-                    "code": "temporal_violation",
-                },
-            )
-        if event.event_type == "quiz_completed" and not quiz_completed_follows_quiz_started(
-            db, event.session_id, event.timestamp
-        ):
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "detail": "Temporal violation: quiz_started must precede quiz_completed in this session.",
-                    "code": "temporal_violation",
-                },
-            )
-        if event.event_type == "lesson_completed" and not lesson_completed_follows_lesson_started(
-            db, event.session_id, event.timestamp
-        ):
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "detail": "Temporal violation: lesson_started must precede lesson_completed in this session.",
-                    "code": "temporal_violation",
-                },
-            )
-        validated_quiz: QuizCompletedData | None = None
-        if event.event_type in _STRICT_PERSIST_TYPES:
-            try:
-                validated = validate_persist_only_payload(event.event_type, event.data)
-            except ValidationError as e:
-                return JSONResponse(
-                    status_code=422,
-                    content={"detail": "Invalid telemetry payload", "errors": e.errors()},
-                )
-            if validated is None:
-                return JSONResponse(
-                    status_code=422,
-                    content={"detail": f"Unsupported strict validation for {event.event_type}."},
-                )
-            if event.event_type == "quiz_completed":
-                validated_quiz = validated  # type: ignore[assignment]
-        _persist_event(event, db)
-        if validated_quiz is not None:
-            upsert_mastery_from_quiz_completed(db, event.user_id, validated_quiz)
-        db.commit()
-        return JSONResponse(
-            status_code=202,
-            content={"detail": "Event accepted and stored."},
-        )
-
     if event.event_type != "question_answered":
+        if event.event_type in PERSIST_ONLY_EVENT_TYPES:
+            session_row = db.get(SessionModel, event.session_id)
+            if session_row is None:
+                return JSONResponse(
+                    status_code=400,
+                    content={"detail": "Unknown session_id. Create a session before logging events."},
+                )
+            _persist_event(event, db)
+            db.commit()
+            return JSONResponse(
+                status_code=202,
+                content={"detail": "Event accepted and stored."},
+            )
         return JSONResponse(status_code=202, content={"detail": "Event accepted (ignored for attention)."})
 
-    # question_answered — session and temporal checks completed above
+    # Validate session exists before updating Redis; invalid sessions must not pollute drift state.
+    session_row = db.get(SessionModel, event.session_id)
+    if session_row is None:
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "Unknown session_id. Create a session before logging events."},
+        )
+
     latency_ms = event.data.get("response_latency_ms")
     is_correct = event.data.get("is_correct")
     idle_ms = event.data.get("idle_ms")
@@ -559,76 +458,114 @@ def get_dashboard():
 
 
 @router.get("/mastery/{user_id}")
-def get_mastery_scores(user_id: UUID, db: Session = Depends(get_db)):
-    """Per-lesson mastery from learner.mastery_scores joined to curriculum lesson titles."""
-    rows = (
-        db.query(LearnerMasteryScore)
-        .filter(LearnerMasteryScore.user_id == user_id)
-        .all()
-    )
-    items = []
-    for ms in rows:
-        lesson = (
-            db.get(CurriculumLesson, str(ms.lesson_id))
-            if ms.lesson_id is not None
-            else None
-        )
-        items.append(
-            {
-                "lesson_id": str(ms.lesson_id) if ms.lesson_id else None,
-                "external_id": lesson.external_id if lesson else None,
-                "lesson_title": lesson.title if lesson else None,
-                "score": float(ms.score),
-                "score_percent": round(float(ms.score) * 100.0, 1),
-                "attempts": int(ms.attempts),
-                "updated_at": ms.updated_at.isoformat() if ms.updated_at else None,
-            }
-        )
+def get_mastery_scores(user_id: UUID):
+    """Placeholder for mastery vs attention correlation."""
     return JSONResponse(
         status_code=200,
         content={
             "user_id": str(user_id),
-            "lessons": items,
+            "detail": "Mastery analytics implementation pending.",
         },
     )
 
 
 @router.get("/dashboard/{user_id}")
-def get_dashboard_data(
-    user_id: UUID,
-    request: Request,
-    db: Session = Depends(get_db),
-    settings_obj: Settings = Depends(get_settings),
-):
-    """Dashboard: counts, overall mastery %, time per module, attention summary."""
-    # Phase 5 RBAC gating:
-    # - student bearer: can only access self
-    # - teacher/admin bearer: can access any
-    # - parent session cookie: can access own children only
-    authz_header = request.headers.get("Authorization", "")
-    if authz_header.lower().startswith("bearer "):
-        token = authz_header.split(" ", 1)[1].strip()
-        auth = get_auth_service()
-        payload = auth.decode_token(token)
-        role = payload.get("role")
-        sub = payload.get("sub")
-        if role == "student":
-            if str(sub) != str(user_id):
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Student access denied.")
-        elif role in {"teacher", "admin"}:
-            pass
-        else:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
-    else:
-        session_token = request.cookies.get(settings_obj.session_cookie_name)
-        if not session_token:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
-        session = get_session(db, session_token)
-        if session is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
-        if not any(str(s.student_id) == str(user_id) for s in session.parent_user.students):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Parent access denied.")
+def get_dashboard_data(user_id: UUID, db: Session = Depends(get_db)):
+    """Get a minimal dashboard view for a user.
 
-    dashboard = build_dashboard_payload(db, user_id)
+    This aligns loosely with DashboardData in api_contracts.yaml, focusing on:
+    - lessons_completed, quizzes_taken from events.user_events
+    - a simple overall_mastery placeholder
+    - a basic attention_summary derived from attention_metrics
+    """
+    # Lessons completed & quizzes taken from events.user_events.
+    lessons_completed = (
+        db.query(func.count(UserEvent.event_id))
+        .filter(
+            UserEvent.user_id == user_id,
+            UserEvent.event_type == "lesson_completed",
+        )
+        .scalar()
+        or 0
+    )
+    quizzes_taken = (
+        db.query(func.count(UserEvent.event_id))
+        .filter(
+            UserEvent.user_id == user_id,
+            UserEvent.event_type == "quiz_completed",
+        )
+        .scalar()
+        or 0
+    )
+
+    # Simple attention summary: average score across all metrics for the user.
+    avg_score = (
+        db.query(func.avg(AttentionMetric.attention_score))
+        .filter(AttentionMetric.user_id == user_id, AttentionMetric.attention_score.isnot(None))
+        .scalar()
+    )
+    avg_score_val = float(avg_score) if avg_score is not None else 0.0
+
+    quiz_session_rows = (
+        db.query(UserEvent.session_id)
+        .filter(
+            UserEvent.user_id == user_id,
+            UserEvent.event_type == "quiz_completed",
+            UserEvent.session_id.isnot(None),
+        )
+        .distinct()
+        .all()
+    )
+    quiz_session_ids = [row[0] for row in quiz_session_rows if row[0] is not None]
+
+    quiz_focus = {
+        "attempts": 0,
+        "average_attention_score": 0.0,
+        "low_focus_attempts": 0,
+    }
+
+    if quiz_session_ids:
+        per_session = (
+            db.query(
+                AttentionMetric.session_id,
+                func.avg(AttentionMetric.attention_score).label("avg_score"),
+            )
+            .filter(
+                AttentionMetric.user_id == user_id,
+                AttentionMetric.session_id.in_(quiz_session_ids),
+                AttentionMetric.attention_score.isnot(None),
+            )
+            .group_by(AttentionMetric.session_id)
+            .all()
+        )
+        session_scores = [float(row.avg_score) for row in per_session if row.avg_score is not None]
+        if session_scores:
+            avg_quiz_focus = sum(session_scores) / len(session_scores)
+            low_focus = sum(1 for score in session_scores if score < 0.4)
+            quiz_focus = {
+                "attempts": len(session_scores),
+                "average_attention_score": avg_quiz_focus,
+                "low_focus_attempts": low_focus,
+            }
+
+    attention_summary = {
+        "average_attention_score": avg_score_val,
+        "peak_focus_time": "",
+        "drift_count": 0,
+    }
+
+    # For now, overall_mastery/strengths/weaknesses/time_spent are simple placeholders.
+    dashboard = {
+        "user_id": str(user_id),
+        "lessons_completed": int(lessons_completed),
+        "quizzes_taken": int(quizzes_taken),
+        "overall_mastery": 0.0,
+        "strengths": [],
+        "weaknesses": [],
+        "time_spent_minutes": 0,
+        "attention_summary": attention_summary,
+        "quiz_focus": quiz_focus,
+    }
+
     return JSONResponse(status_code=200, content=dashboard)
 

@@ -1,21 +1,34 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { analyticsAPI, sessionsAPI } from '@/lib/api';
 
-export default function SelfReportPanel({ userId }: { userId: string }) {
+export default function SelfReportPanel({
+  userId,
+  sessionId: externalSessionId,
+}: {
+  userId: string;
+  sessionId?: string | null;
+}) {
   const [level, setLevel] = useState(0.75);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(externalSessionId ?? null);
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => {
+    if (externalSessionId) {
+      setSessionId(externalSessionId);
+    }
+  }, [externalSessionId]);
+
   const ensureSession = useCallback(async () => {
+    if (externalSessionId) return externalSessionId;
     if (sessionId) return sessionId;
     const res = await sessionsAPI.create(userId);
     const sid = res.data.session_id as string;
     setSessionId(sid);
     return sid;
-  }, [sessionId, userId]);
+  }, [externalSessionId, sessionId, userId]);
 
   const submit = async () => {
     setBusy(true);

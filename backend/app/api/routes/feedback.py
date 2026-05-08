@@ -10,6 +10,7 @@ import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -32,6 +33,13 @@ from app.services.feedback_agent import feedback_agent
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Feedback"])
+
+
+class AttentionSignalRequest(BaseModel):
+    user_id: str
+    session_id: str
+    recommended_action: str
+    rationale: str
 
 
 @router.post("/hint", response_model=HintResponse)
@@ -109,3 +117,14 @@ async def trigger_re_quiz(
         user_id=payload.user_id,
     )
     return ReQuizResponse(**result)
+
+
+@router.post("/attention-signal")
+def record_attention_signal_endpoint(payload: AttentionSignalRequest):
+    record_attention_signal(
+        user_id=payload.user_id,
+        session_id=payload.session_id,
+        recommended_action=payload.recommended_action,
+        rationale=payload.rationale,
+    )
+    return {"status": "ok"}

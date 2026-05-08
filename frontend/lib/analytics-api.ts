@@ -71,6 +71,11 @@ export type DashboardResponse = {
     peak_focus_time: string;
     drift_count: number;
   };
+  quiz_focus?: {
+    attempts: number;
+    average_attention_score: number;
+    low_focus_attempts: number;
+  };
 };
 
 export type EventPayload = {
@@ -79,6 +84,14 @@ export type EventPayload = {
   user_id: string;
   session_id: string;
   data: Record<string, unknown>;
+};
+
+/** Response body from POST /analytics/events when event_type is question_answered (HTTP 202). */
+export type QuestionAnsweredIngestResponse = {
+  attention_score?: number;
+  drift?: boolean;
+  recommended_action?: string;
+  rationale?: string;
 };
 
 export type SessionCreateResponse = {
@@ -111,7 +124,9 @@ export async function endLearningSession(sessionId: string): Promise<SessionCrea
 
 // ---- Analytics Event Ingestion ----
 
-export async function ingestAnalyticsEvent(event: EventPayload): Promise<Record<string, unknown>> {
+export async function ingestAnalyticsEvent(
+  event: EventPayload,
+): Promise<Record<string, unknown>> {
   return authRequest<Record<string, unknown>>("/analytics/events", {
     method: "POST",
     body: JSON.stringify(event),

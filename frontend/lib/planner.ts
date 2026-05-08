@@ -13,7 +13,7 @@ export type PlannerRecommendResponse = {
 
 export async function fetchPlannerRecommendations(
   studentId: string,
-  options?: { sessionId?: string; limit?: number }
+  options?: { sessionId?: string; limit?: number },
 ): Promise<PlannerRecommendResponse> {
   const params = new URLSearchParams();
   if (options?.sessionId) params.set("session_id", options.sessionId);
