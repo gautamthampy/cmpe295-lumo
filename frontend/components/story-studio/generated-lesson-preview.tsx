@@ -10,7 +10,8 @@ import {
   type StudentProgress,
 } from "@/lib/story-studio/adaptation";
 import { createLearningSession, endLearningSession, ingestAnalyticsEvent } from "@/lib/analytics-api";
-import { requestExplanation, requestMotivation } from "@/lib/feedback";
+import { requestExplanation, requestHint, requestMotivation } from "@/lib/feedback";
+import { FeedbackModal } from "@/components/feedback/FeedbackModal";
 import { useTwoAttemptQuizController } from "@/lib/lesson-quiz-controller";
 import type { LessonQuizPayload } from "@/lib/lessons";
 import type { LessonSpec, TypedMechanicId } from "@/lib/story-studio/lesson-spec";
@@ -91,6 +92,13 @@ export function GeneratedLessonPreview() {
   const [explanations, setExplanations] = useState<Record<string, string>>({});
   const [explanationPending, setExplanationPending] = useState<string | null>(null);
   const [quizGenerating, setQuizGenerating] = useState(false);
+  const [hintLevels, setHintLevels] = useState<Record<string, number>>({});
+  const [hintPending, setHintPending] = useState<string | null>(null);
+  const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
+  const [feedbackTitle, setFeedbackTitle] = useState("");
+  const [feedbackContent, setFeedbackContent] = useState("");
+  const [feedbackHintLevel, setFeedbackHintLevel] = useState<number | undefined>(undefined);
+  const [feedbackIsMotivation, setFeedbackIsMotivation] = useState(false);
 
   const newQuizRunId = () => {
     if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -218,6 +226,7 @@ export function GeneratedLessonPreview() {
       setQuizRunId(newQuizRunId());
       setMotivationMessage(null);
       setExplanations({});
+      setHintLevels({});
     },
     onAttemptComplete: async (result) => {
       if (!lesson || !analyticsSessionId || !isUuid(userId)) {
@@ -641,6 +650,39 @@ export function GeneratedLessonPreview() {
                         })}
                       </div>
 
+                      {/* Hint button – available before submission, up to 3 levels */}
+                      {!quizSubmitted && (hintLevels[question.question_id] ?? 1) <= 3 ? (
+                        <button
+                          type="button"
+                          disabled={hintPending === question.question_id}
+                          onClick={async () => {
+                            const currentLevel = hintLevels[question.question_id] ?? 1;
+                            if (currentLevel > 3) return;
+                            setHintPending(question.question_id);
+                            try {
+                              const result = await requestHint({
+                                question_id: question.question_id,
+                                question_text: question.question_text,
+                                user_id: userId ?? "student",
+                                session_id: analyticsSessionId ?? "session",
+                                hint_level: currentLevel,
+                              });
+                              setHintLevels((prev) => ({ ...prev, [question.question_id]: Math.min(currentLevel + 1, 4) }));
+                              setFeedbackTitle(`Hint (Level ${currentLevel})`);
+                              setFeedbackContent(result.hint_text);
+                              setFeedbackHintLevel(currentLevel);
+                              setFeedbackIsMotivation(false);
+                              setFeedbackModalOpen(true);
+                            } finally {
+                              setHintPending(null);
+                            }
+                          }}
+                          className="mt-3 rounded-full bg-cyan-100 px-4 py-2 text-xs font-black uppercase tracking-wide text-cyan-800"
+                        >
+                          {hintPending === question.question_id ? "Loading hint..." : `Get a Hint (${hintLevels[question.question_id] ?? 1}/3)`}
+                        </button>
+                      ) : null}
+
                       {isWrong ? (
                         <button
                           type="button"
@@ -733,6 +775,16 @@ export function GeneratedLessonPreview() {
             ) : null}
           </section>
         ) : null}
+
+        {/* Feedback Modal */}
+        <FeedbackModal
+          isOpen={feedbackModalOpen}
+          onClose={() => setFeedbackModalOpen(false)}
+          title={feedbackTitle}
+          content={feedbackContent}
+          hintLevel={feedbackHintLevel}
+          isMotivation={feedbackIsMotivation}
+        />
       </div>
     </main>
   );
