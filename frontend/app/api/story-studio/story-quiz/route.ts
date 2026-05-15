@@ -41,11 +41,15 @@ export async function POST(request: Request) {
     return NextResponse.json(cached);
   }
 
+  if (!apiKey) {
+    return NextResponse.json(
+      { error: "Missing GEMINI_API_KEY. Set it in frontend/.env.local to enable LLM quiz generation." },
+      { status: 503 }
+    );
+  }
+
   try {
     const result = await withInFlightDedup("story-quizzes", cacheKey, async () => {
-      if (!apiKey) {
-        throw new Error("Missing GEMINI_API_KEY for quiz generation.");
-      }
 
       const prompt = `You are an educational quiz generator for a Grade ${lesson.gradeLevel} student.
 Create exactly 6 multiple-choice questions to test the student's understanding of this mission.
@@ -97,6 +101,7 @@ The questions should be playful, encouraging, and related to the Lesson Context 
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: {
               responseMimeType: "application/json",
+              thinkingConfig: { thinkingBudget: 0 },
             },
           }),
         }

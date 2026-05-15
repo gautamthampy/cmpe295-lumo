@@ -10,12 +10,13 @@ import {
   type StudentProgress,
 } from "@/lib/story-studio/adaptation";
 import { createLearningSession, endLearningSession, ingestAnalyticsEvent } from "@/lib/analytics-api";
-import { requestExplanation, requestHint, requestMotivation } from "@/lib/feedback";
+import { requestMotivation } from "@/lib/feedback";
 import { FeedbackModal } from "@/components/feedback/FeedbackModal";
 import { useTwoAttemptQuizController } from "@/lib/lesson-quiz-controller";
 import type { LessonQuizPayload } from "@/lib/lessons";
 import type { LessonSpec, TypedMechanicId } from "@/lib/story-studio/lesson-spec";
-import { buildStoryStudioQuiz, generateStoryQuizLLM } from "@/lib/story-studio/story-quiz";
+import { requestStoryQuizExplanation, requestStoryQuizHint } from "@/lib/story-studio/quiz-feedback";
+import { generateStoryQuizLLM } from "@/lib/story-studio/story-quiz";
 import {
   readGeneratedLesson,
   readStoredSource,
@@ -660,12 +661,10 @@ export function GeneratedLessonPreview() {
                             if (currentLevel > 3) return;
                             setHintPending(question.question_id);
                             try {
-                              const result = await requestHint({
-                                question_id: question.question_id,
-                                question_text: question.question_text,
-                                user_id: userId ?? "student",
-                                session_id: analyticsSessionId ?? "session",
-                                hint_level: currentLevel,
+                              const result = await requestStoryQuizHint({
+                                lesson,
+                                question,
+                                hintLevel: currentLevel,
                               });
                               setHintLevels((prev) => ({ ...prev, [question.question_id]: Math.min(currentLevel + 1, 4) }));
                               setFeedbackTitle(`Hint (Level ${currentLevel})`);
@@ -690,14 +689,12 @@ export function GeneratedLessonPreview() {
                           onClick={async () => {
                             setExplanationPending(question.question_id);
                             try {
-                              const explanation = await requestExplanation({
-                                question_id: question.question_id,
-                                question_text: question.question_text,
-                                user_answer: selectedOption?.option_text ?? "",
-                                correct_answer: correctOption?.option_text ?? "",
-                                user_id: userId ?? "student",
-                                session_id: analyticsSessionId ?? "session",
-                                misconception_type: selectedOption?.misconception_type ?? null,
+                              const explanation = await requestStoryQuizExplanation({
+                                lesson,
+                                question,
+                                selectedAnswer: selectedOption?.option_text ?? "",
+                                correctAnswer: correctOption?.option_text ?? "",
+                                misconceptionType: selectedOption?.misconception_type ?? null,
                               });
                               setExplanations((current) => ({
                                 ...current,

@@ -151,7 +151,11 @@ export async function generateStoryQuizLLM(
 
     return (await response.json()) as LessonQuizPayload;
   } catch (error) {
-    console.error("LLM Quiz Generation failed, falling back to static questions.", error);
+    console.error(
+      "[story-quiz] LLM quiz generation failed — using static seed questions as fallback.",
+      "Check that GEMINI_API_KEY is set in frontend/.env.local.",
+      error
+    );
     return buildStoryStudioQuiz(lesson, options);
   }
 }
