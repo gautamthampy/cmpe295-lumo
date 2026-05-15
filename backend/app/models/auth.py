@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Uuid, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, UniqueConstraint, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -91,6 +91,31 @@ class Student(Base):
         passive_deletes=True,
         lazy="noload",
     )
+
+
+class StaffUser(Base):
+    __tablename__ = "staff_users"
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str] = mapped_column(String(32), nullable=False, default="teacher")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, server_default=func.now())
+
+
+class StudentCurriculumPreference(Base):
+    __tablename__ = "student_curriculum_preferences"
+    __table_args__ = (
+        UniqueConstraint("student_id", "curriculum_subject_id", name="uq_student_curriculum_preference"),
+    )
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    student_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), ForeignKey("students.student_id", ondelete="CASCADE"), index=True, nullable=False)
+    curriculum_subject_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), ForeignKey("curriculum_subjects.id", ondelete="CASCADE"), index=True, nullable=False)
+    topics: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, server_default=func.now())
 
 
 class StudentLoginCodeToken(Base):

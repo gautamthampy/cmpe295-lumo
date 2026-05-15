@@ -252,11 +252,9 @@ async function generateWithGemini(prompt: string): Promise<{
         ],
         generationConfig: {
           temperature: 0,
-          maxOutputTokens: 1200,
+          maxOutputTokens: 2400,
           responseMimeType: "application/json",
-          thinkingConfig: {
-            thinkingLevel: "minimal",
-          },
+          thinkingConfig: { thinkingBudget: 0 },
         },
       }),
     }
@@ -282,10 +280,15 @@ async function generateWithGemini(prompt: string): Promise<{
       ?.map((part) => part.text ?? "")
       .join("")
       .trim() ?? "";
+  const parsedDraft = parseModelJson<LessonSpecDraft>(rawText);
 
   return {
-    draft: parseModelJson<LessonSpecDraft>(rawText),
-    error: rawText ? null : "Gemini returned empty candidate text.",
+    draft: parsedDraft,
+    error: parsedDraft
+      ? null
+      : rawText
+        ? "Gemini returned malformed lesson JSON."
+        : "Gemini returned empty candidate text.",
     usage: payload.usageMetadata ?? null,
   };
 }
@@ -385,9 +388,7 @@ async function generateSceneSpecWithGemini(
             temperature: 0.2,
             maxOutputTokens: 900,
             responseMimeType: "application/json",
-            thinkingConfig: {
-              thinkingLevel: "minimal",
-            },
+            thinkingConfig: { thinkingBudget: 0 },
           },
         }),
       }

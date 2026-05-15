@@ -272,12 +272,10 @@ async function generateStoryPlanWithGemini(
           ],
           generationConfig: {
             temperature: 0.3,
-            maxOutputTokens: 700,
+            maxOutputTokens: 1800,
             responseMimeType: "application/json",
             responseSchema: STORY_PLAN_RESPONSE_SCHEMA,
-            thinkingConfig: {
-              thinkingLevel: "minimal",
-            },
+            thinkingConfig: { thinkingBudget: 0 },
           },
         }),
       }
@@ -366,9 +364,6 @@ async function generateSceneImage(prompt: string): Promise<{ imageDataUrl: strin
             imageConfig: {
               aspectRatio: "16:9",
               imageSize: "512",
-            },
-            thinkingConfig: {
-              thinkingLevel: "minimal",
             },
           },
         }),

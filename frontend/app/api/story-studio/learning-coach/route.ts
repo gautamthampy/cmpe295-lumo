@@ -190,12 +190,10 @@ export async function POST(request: Request) {
           ],
           generationConfig: {
             temperature: 0.2,
-            maxOutputTokens: 220,
+            maxOutputTokens: 800,
             responseMimeType: "application/json",
             responseSchema: COACH_RESPONSE_SCHEMA,
-            thinkingConfig: {
-              thinkingLevel: "minimal",
-            },
+            thinkingConfig: { thinkingBudget: 0 },
           },
         }),
       }
