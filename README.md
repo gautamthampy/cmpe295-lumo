@@ -1,377 +1,243 @@
-# LUMO — Learning Understanding through Multi-agent Orchestration
+# LUMO
 
-> An AI-powered adaptive tutoring platform for K-8 students, built with a multi-agent architecture that personalises lessons, tracks attention, and provides real-time feedback.
+**Learning Understanding through Multi-agent Orchestration**
 
-[![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?logo=fastapi)](https://fastapi.tiangolo.com)
-[![Next.js](https://img.shields.io/badge/Frontend-Next.js%2015-000?logo=next.js)](https://nextjs.org)
-[![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL-336791?logo=postgresql)](https://www.postgresql.org)
-[![Redis](https://img.shields.io/badge/Cache-Redis-DC382D?logo=redis)](https://redis.io)
-[![Gemini](https://img.shields.io/badge/AI-Google%20Gemini-4285F4?logo=google)](https://ai.google.dev)
+LUMO is an adaptive tutoring platform for K-8 students. It uses a multi-agent backend to generate lessons, track student attention, and provide real-time feedback -- all tailored to individual learners. Parents create accounts, add student profiles, and can initiate diagnostic assessments to surface misconceptions.
+
+This project was built as part of CMPE 295 (Master's Project) at San Jose State University.
 
 ---
 
-## Table of Contents
+## What it does
 
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Multi-Agent System](#multi-agent-system)
-- [Tech Stack](#tech-stack)
-- [Project Structure](#project-structure)
-- [Getting Started](#getting-started)
-- [API Reference](#api-reference)
-- [Evaluation Framework](#evaluation-framework)
-- [Testing](#testing)
-- [Deployment](#deployment)
+The platform is organized around five cooperating agents on the backend:
 
----
+- **Planner Agent** -- Orchestrates the learning path. Pulls signals from attention, feedback, and analytics to recommend what the student should do next: continue a lesson, review something, take a break, or switch to an interactive activity.
 
-## Overview
+- **Lesson Designer** -- Generates age-appropriate lesson content through four pluggable strategies: Zone of Proximal Development (ZPD), Bayesian Knowledge Tracing (BKT), misconception-targeted, and a hybrid that blends all three. Each strategy can be swapped or tuned independently.
 
-LUMO is an intelligent tutoring system that uses a **multi-agent architecture** to deliver personalised, accessible learning experiences for elementary-school students. The platform addresses three core challenges in digital education:
+- **Feedback Agent** -- Handles three tiers of hints (nudge, conceptual, procedural), step-by-step error explanations, and motivational messages when quiz performance drops.
 
-1. **Adaptive Content Generation** — Lessons are dynamically generated using ZPD, BKT, misconception-aware, and hybrid strategies, tailored to each learner's current mastery level.
-2. **Real-Time Attention Monitoring** — A lightweight attention engine detects drift via response latency, error rate, and idle time, triggering breaks or interactive recaps.
-3. **Closed-Loop Feedback** — Tiered hints (nudge → conceptual → procedural), error explanations, and motivational nudges keep students engaged without revealing answers.
+- **Attention Engine** -- Computes an attention score from response latency, error rate, and idle time. Uses a sliding window over Redis to detect drift. When drift is sustained, the system suggests breaks or recap activities. Also records peak attention windows by time-of-day and day-of-week.
 
-The system is designed for **parent-supervised learning**, where parents create accounts, add student profiles, and can request diagnostic assessments to identify misconceptions.
+- **Diagnostic Agent** -- Parent-initiated assessments that probe specific misconceptions, score responses, and recommend targeted follow-up lessons.
+
+On the frontend, students get an interactive learning interface with lessons, quizzes, and a "Story Studio" feature that generates narrative-driven learning experiences. Parents get a portal to manage student profiles and view analytics.
 
 ---
 
-## Architecture
+## Tech stack
+
+| Layer | Details |
+|-------|---------|
+| Frontend | Next.js 15, React 19, TypeScript, Tailwind CSS, Zustand |
+| Backend | Python 3.11+, FastAPI, SQLAlchemy, Pydantic v2 |
+| Database | PostgreSQL (schemas: `iam`, `learner`, `content`, `events`, `catalog`) |
+| Cache | Redis (attention drift state, sliding windows) |
+| Object storage | MinIO (content/assets in Docker setup) |
+| AI/LLM | Google Gemini or local Ollama (configurable per environment) |
+| Auth | Session cookies with bcrypt password hashing; email-code login for students |
+| Testing | pytest (backend), Vitest + Playwright (frontend) |
+
+---
+
+## Project layout
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                   Next.js Frontend                      │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────┐  │
-│  │ Lessons  │ │Dashboard │ │   Auth   │ │ Analytics │  │
-│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └─────┬─────┘  │
-│       └────────────┴────────────┴──────────────┘        │
-│                         │  API Proxy                    │
-└─────────────────────────┼───────────────────────────────┘
-                          │
-┌─────────────────────────┼───────────────────────────────┐
-│                   FastAPI Backend                        │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────┐  │
-│  │ Planner  │ │ Lesson   │ │ Feedback │ │ Attention │  │
-│  │  Agent   │ │ Designer │ │  Agent   │ │  Engine   │  │
-│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └─────┬─────┘  │
-│       └────────────┴────────────┴──────────────┘        │
-│                         │                               │
-│  ┌──────────────────────┼────────────────────────────┐  │
-│  │              Service Layer                        │  │
-│  │  GeminiService · AuthService · DiagnosticService  │  │
-│  │  SubjectService · NotificationService · Catalog   │  │
-│  └───────────────────────┬───────────────────────────┘  │
-└──────────────────────────┼──────────────────────────────┘
-                           │
-             ┌─────────────┼─────────────┐
-             │ PostgreSQL  │    Redis    │
-             │ (5 schemas) │  (drift)   │
-             └─────────────┴─────────────┘
-```
+backend/
+  app/
+    api/
+      routes/           auth, feedback, lessons, planner
+      v1/endpoints/     analytics, diagnostics, evaluation, sessions
+    core/               config, database setup, dependency injection
+    models/             SQLAlchemy ORM models
+    schemas/            Pydantic request/response schemas
+    services/
+      generation/       lesson generation strategies (zpd, bkt, misconception, hybrid)
+      attention_engine.py
+      feedback_agent.py
+      planner_service.py
+      diagnostic_service.py
+      gemini_service.py
+      pii_redaction.py
+      ...
+    constants/          event type definitions
+  evaluation/           rubric-based strategy comparison framework
+  tests/                pytest suite
 
----
+database/
+  init/                 SQL bootstrap scripts (run by Docker on first start)
 
-## Multi-Agent System
-
-### 1. Planner Agent (`services/planner_service.py`)
-The **orchestrator**. Aggregates signals from attention, feedback, and analytics subsystems to recommend the student's next-best-action (continue, review, break, switch to interactive). The HTTP API is `GET /api/v1/planner/recommend/{student_id}`; the student **Learn** dashboard (`/learn`) loads suggestions for the signed-in learner when their account id is a UUID (same id as in the JWT `sub` claim).
-
-### 2. Lesson Designer Agent (`services/generation/`)
-Generates age-appropriate, accessible lesson content using four pluggable strategies:
-| Strategy | Module | Description |
-|----------|--------|-------------|
-| **ZPD** | `zpd_strategy.py` | Zone of Proximal Development — scaffolds difficulty |
-| **BKT** | `bkt_strategy.py` | Bayesian Knowledge Tracing — probability-based mastery |
-| **Misconception** | `misconception_strategy.py` | Targets specific student misconceptions |
-| **Hybrid** | `hybrid_strategy.py` | Blends ZPD + BKT + misconception signals |
-
-### 3. Feedback & Motivation Agent (`services/feedback_agent.py`)
-Provides three levels of support:
-- **Hints** (Level 1–3): Nudge → Conceptual → Procedural, progressively revealing more detail
-- **Explanations**: Step-by-step breakdowns when a student answers incorrectly
-- **Motivational Nudges**: Encouraging messages triggered when quiz performance drops below 50%
-
-### 4. Attention Engine (`services/attention_engine.py`)
-A lightweight attention-tracking pipeline:
-- Computes an attention score from response latency, error rate, and idle time
-- Detects **attention drift** using a sliding-window approach with Redis state
-- Triggers **break suggestions** or **recap activities** when drift is sustained
-- Records attention peaks by hour-of-day × day-of-week for optimal scheduling
-
-### 5. Diagnostic Agent (`services/diagnostic_service.py`)
-Parent-initiated assessments that probe student misconceptions:
-- Generates probing activities from the misconception taxonomy
-- Scores responses and identifies weak tags
-- Suggests targeted remedial lessons (existing or AI-generated)
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| **Frontend** | Next.js 15, React 19, TypeScript, Tailwind CSS |
-| **Backend** | Python 3.11+, FastAPI, SQLAlchemy, Pydantic v2 |
-| **Database** | PostgreSQL (5 schemas: `iam`, `learner`, `content`, `events`, `catalog`) |
-| **Cache** | Redis (attention drift state, feature windows) |
-| **AI** | Gemini or local Ollama (configurable) |
-| **Auth** | JWT (bcrypt password hashing, PIN-based student login) |
-| **Email** | SMTP with configurable log/smtp delivery modes |
-| **Eval** | Custom rubric-based evaluation pipeline |
-
----
-
-## Project Structure
-
-```
-cmpe295-lumo/
-├── backend/
-│   ├── app/
-│   │   ├── api/
-│   │   │   ├── routes/              # Primary API routes
-│   │   │   │   ├── auth.py          # Parent/student auth flows
-│   │   │   │   ├── feedback.py      # Hint, explanation, motivation
-│   │   │   │   ├── lessons.py       # Lesson CRUD, rendering, quiz gen
-│   │   │   │   └── planner.py       # Learning path recommendations
-│   │   │   └── v1/endpoints/        # Extended API routes
-│   │   │       ├── analytics.py     # Attention events, metrics, dashboard
-│   │   │       ├── diagnostics.py   # Diagnostic assessment CRUD
-│   │   │       ├── evaluation.py    # Strategy comparison metrics
-│   │   │       └── sessions.py      # Learning session management
-│   │   ├── core/                     # Config, database, dependencies
-│   │   ├── models/                   # SQLAlchemy ORM models
-│   │   ├── schemas/                  # Pydantic request/response schemas
-│   │   ├── services/                 # Business logic layer
-│   │   │   ├── generation/           # Lesson generation strategies
-│   │   │   ├── attention_engine.py   # Attention scoring + drift
-│   │   │   ├── feedback_agent.py     # Feedback & motivation agent
-│   │   │   ├── planner_service.py    # Planner orchestrator
-│   │   │   ├── diagnostic_service.py # Diagnostic assessments
-│   │   │   ├── gemini_service.py     # LLM integration (Gemini)
-│   │   │   └── ...
-│   │   └── constants/                # Event type constants
-│   ├── evaluation/                   # Evaluation framework
-│   │   ├── rubrics.py                # Scoring rubrics
-│   │   └── run_eval.py               # Evaluation runner
-│   ├── migrations/                   # Alembic DB migrations
-│   └── tests/                        # pytest test suite
-├── frontend/
-│   ├── app/                          # Next.js app router pages
-│   │   ├── (auth)/                   # Login, register, student login
-│   │   ├── (parent)/                 # Parent portal (student mgmt)
-│   │   ├── (student)/                # Student learning interface
-│   │   ├── dashboard/                # Attention analytics dashboard
-│   │   ├── lessons/                  # Lesson list, render, analytics
-│   │   └── portal/                   # Parent dashboard portal
-│   ├── components/                   # React components
-│   │   ├── feedback/                 # FeedbackModal
-│   │   ├── lessons/                  # LessonUI (main interactive view)
-│   │   └── ui/                       # Shared UI primitives
-│   ├── lib/                          # API clients & utilities
-│   │   ├── api.ts                    # Base authRequest helper
-│   │   ├── analytics-api.ts          # Analytics endpoints
-│   │   ├── feedback.ts               # Feedback API client
-│   │   ├── lessons.ts                # Lesson/quiz API client
-│   │   └── story-studio/             # Story experience generation
-│   └── public/                       # Static assets
-└── docs/                             # Project workbook & documentation
+frontend/
+  app/
+    (auth)/             login, register, student-login
+    (parent)/           parent portal, student management
+    (student)/          student learning interface
+    api/story-studio/   story experience generation routes
+    dashboard/          attention analytics
+    lessons/            lesson list, individual lesson view, analytics
+    portal/             parent dashboard
+  components/
+    attention/          attention tracking UI
+    feedback/           feedback modal
+    lessons/            main interactive lesson view
+    story-studio/       narrative learning experience components
+  lib/                  API clients, auth helpers, state management
 ```
 
 ---
 
-## Getting Started
+## Getting started
 
 ### Prerequisites
 
-- Python 3.11+
-- Node.js 18+
+- Python 3.11 or later
+- Node.js 18 or later
 - PostgreSQL 14+
 - Redis 7+
-- Optional Gemini API key, or local Ollama runtime
+- A Google Gemini API key, or a running Ollama instance for local LLM inference
 
-### Backend Setup
+### Backend
 
 ```bash
 cd backend
-
-# Create virtual environment
 python3.11 -m venv .venv
 source .venv/bin/activate
+pip install -e .
+```
 
-# Install dependencies
-pip install -r requirements.txt
+There's a `.env.example` in the repo root you can copy from. Create a `.env` file in `backend/` with at least:
 
-# Configure environment
-cp .env.example .env
-# Edit .env with your database URL, Redis URL, and LLM settings (Gemini or Ollama)
+```
+DATABASE_URL=postgresql+psycopg://lumo:lumo@localhost:5432/lumo_auth
+REDIS_URL=redis://localhost:6379/0
+LLM_PROVIDER=gemini        # or "ollama" for local
+GEMINI_API_KEY=your-key     # only needed when LLM_PROVIDER=gemini
+JWT_SECRET=pick-something-random
+```
 
-# Run database migrations
-alembic upgrade head
+The database schema is bootstrapped by SQL scripts in `database/init/` (these run automatically when using Docker Compose). Tables can also be auto-created on startup via SQLAlchemy when `AUTO_CREATE_TABLES=true`. Start the server:
 
-# Start the development server
+```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### Frontend Setup
+### Frontend
 
 ```bash
 cd frontend
-
-# Install dependencies
 npm install
+```
 
-# Configure environment
-cp .env.example .env.local
-# Set NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+Create a `.env.local` file:
 
-# Start the development server
+```
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
+```
+
+If you want Story Studio to use Gemini for story generation, image prompts, and narration, also set `LLM_PROVIDER=gemini` and `GEMINI_API_KEY` in `.env.local`. Otherwise it defaults to Ollama with placeholder images and browser-based speech.
+
+```bash
 npm run dev
 ```
 
-### Environment Variables
+The frontend runs on `http://localhost:3000` and proxies API requests to the backend.
 
-| Variable | Description | Default |
+### Other environment variables
+
+| Variable | What it does | Default |
 |----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://lumo:lumo@localhost:5432/lumo` |
-| `REDIS_URL` | Redis connection string | `redis://localhost:6379/0` |
-| `LLM_PROVIDER` | LLM backend: `gemini` or `ollama` | `ollama` |
-| `GEMINI_API_KEY` | Google Gemini API key (when provider is `gemini`) | — |
-| `OLLAMA_BASE_URL` | Local Ollama API URL | `http://localhost:11434` |
-| `OLLAMA_MODEL` | Ollama model name/tag | `llama3.1:8b` |
-
-**Frontend Story Studio** (Next.js API routes under `/api/story-studio/`): set the same `LLM_PROVIDER`, `OLLAMA_BASE_URL`, and `OLLAMA_MODEL` in `frontend/.env.local` (defaults match local Ollama). Use `LLM_PROVIDER=gemini` and `GEMINI_API_KEY` only when you want Google for story generation, images, or TTS. With Ollama, scene images use placeholders and narration uses browser speech.
-| `JWT_SECRET` | Secret key for JWT token signing | `changeme` |
-| `AUTO_CREATE_TABLES` | Auto-create DB tables on startup | `true` |
+| `OLLAMA_BASE_URL` | Ollama API endpoint | `http://localhost:11434` |
+| `OLLAMA_MODEL` | Which Ollama model to use | `llama3.1:8b` |
+| `AUTO_CREATE_TABLES` | Create DB tables on startup | `true` |
+| `SESSION_COOKIE_NAME` | Name for the session cookie | `lumo_session` |
+| `SESSION_COOKIE_SECURE` | Secure flag on session cookies | `false` |
+| `BACKEND_CORS_ORIGINS` | Allowed CORS origins | `http://localhost:3000` |
 | `ENABLE_GAZE_TELEMETRY` | Enable gaze tracking events | `false` |
-| `MAIL_DELIVERY_MODE` | Email delivery: `log` or `smtp` | `log` |
+| `MAIL_DELIVERY_MODE` | `log` (print to console) or `smtp` | `log` |
+| `MINIO_ENDPOINT` | MinIO/S3 endpoint | `minio:9000` |
+| `MINIO_ACCESS_KEY` | MinIO access key | -- |
+| `MINIO_SECRET_KEY` | MinIO secret key | -- |
 
 ---
 
-## API Reference
+## API overview
 
-All endpoints are served under `/api/v1`.
+All endpoints live under `/api/v1`. Here's a summary of the main route groups:
 
-### Auth (`/api/v1/auth/`)
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/auth/register` | Register a parent account |
-| POST | `/auth/login` | Parent login (returns JWT) |
-| POST | `/auth/students` | Add a student profile |
-| POST | `/auth/students/login` | Student PIN login |
-| GET  | `/auth/students` | List parent's students |
+**Auth** (`/auth/`) -- Register parent accounts, login (returns JWT), add student profiles, student PIN login.
 
-### Lessons (`/api/v1/lessons/`)
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/lessons` | List all lessons (filter by subject, grade) |
-| GET | `/lessons/{id}/render` | Render a lesson with activities |
-| POST | `/lessons/{id}/quiz` | Generate a quiz (LLM or mock) |
-| GET | `/lessons/analytics/summary` | Lesson analytics summary |
-| POST | `/lessons/events` | Log a lesson event |
+**Lessons** (`/lessons/`) -- List and filter lessons by subject/grade, render a lesson with activities, generate quizzes, log lesson events, view analytics summaries.
 
-### Feedback (`/api/v1/feedback/`)
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/feedback/hint` | Get a tiered hint (level 1–3) |
-| POST | `/feedback/explanation` | Get an error explanation |
-| POST | `/feedback/motivation` | Get a motivational nudge |
-| POST | `/feedback/re-quiz` | Generate a re-quiz question |
+**Feedback** (`/feedback/`) -- Request tiered hints (levels 1-3), error explanations, motivational nudges, and re-quiz questions.
 
-### Analytics (`/api/v1/analytics/`)
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/analytics/events` | Ingest a user event |
-| GET | `/analytics/attention/current/` | Current attention status |
-| GET | `/analytics/attention/{user_id}` | Attention history |
-| GET | `/analytics/attention/peaks/` | Peak attention windows |
-| GET | `/analytics/attention/summary/` | Daily attention averages |
-| GET | `/analytics/dashboard/{user_id}` | User dashboard data |
+**Analytics** (`/analytics/`) -- Ingest user events, query current attention status, attention history, peak attention windows, daily averages, and per-user dashboard data.
 
-### Planner (`/api/v1/planner/`)
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/planner/recommend/{student_id}` | Get learning recommendations |
+**Planner** (`/planner/`) -- Get next-step recommendations for a student.
 
-### Diagnostics (`/api/v1/diagnostics/`)
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/diagnostics/generate` | Generate a diagnostic assessment |
-| GET | `/diagnostics/{id}` | Get assessment details |
-| POST | `/diagnostics/{id}/submit` | Submit student responses |
-| GET | `/diagnostics/results/{student_id}` | Get all diagnostics for a student |
+**Diagnostics** (`/diagnostics/`) -- Generate diagnostic assessments, retrieve results, submit student responses.
 
-### Evaluation (`/api/v1/evaluation/`)
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/evaluation/strategy-comparison` | Compare generation strategies |
-| GET | `/evaluation/runs` | List recent generation runs |
+**Evaluation** (`/evaluation/`) -- Compare lesson generation strategies side by side, list recent generation runs.
 
-### Sessions (`/api/v1/sessions/`)
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/sessions/` | Create a learning session |
-| POST | `/sessions/{id}/end` | End a learning session |
+**Sessions** (`/sessions/`) -- Create and end learning sessions.
 
 ---
 
-## Evaluation Framework
+## Evaluation framework
 
-The `evaluation/` directory contains a strategy comparison framework:
-
-- **`rubrics.py`** — Defines scoring rubrics (accessibility, engagement, misconception coverage)
-- **`run_eval.py`** — Runs all four generation strategies against the same prompt and compares scores
-
-Results are persisted to `content.generation_runs` and queryable via the `/evaluation/strategy-comparison` endpoint.
+The `backend/evaluation/` directory has a strategy comparison pipeline. `rubrics.py` defines scoring criteria (accessibility, engagement, misconception coverage) and `run_eval.py` runs all four generation strategies against the same prompt to compare output quality. Results are stored in the `content.generation_runs` table and exposed through the `/evaluation/strategy-comparison` endpoint.
 
 ---
 
-## Testing
+## Running tests
+
+Backend tests use pytest:
 
 ```bash
 cd backend
 source .venv/bin/activate
-
-# Run all tests
 pytest tests/ -v
+```
 
-# Run specific test files
-pytest tests/test_feedback_api.py -v
-pytest tests/test_analytics_api.py -v
-pytest tests/test_attention_peaks.py -v
+There are test files covering auth, lessons, feedback, analytics, attention peaks, PII redaction, quiz adaptivity, and planner micro-recaps.
+
+Frontend tests use Vitest (unit) and Playwright (e2e):
+
+```bash
+cd frontend
+npm run test              # vitest unit tests
+npm run test:e2e:auth     # playwright auth flow tests
 ```
 
 ---
 
 ## Deployment
 
-### Docker (Recommended)
+### Docker Compose
+
+The easiest way to get everything running:
 
 ```bash
-# Build and start all services
 docker-compose up --build
-
-# Services:
-# - Backend:  http://localhost:8000
-# - Frontend: http://localhost:3000
-# - PostgreSQL: localhost:5432
-# - Redis: localhost:6379
 ```
+
+This starts PostgreSQL 16, Redis 7, MinIO (object storage), the backend, and the frontend. The `database/init/` SQL scripts run on first launch to set up the schema. Services are available at:
+
+- Frontend: `http://localhost:3000`
+- Backend: `http://localhost:8000`
+- MinIO console: `http://localhost:9001`
+
+If you're using Ollama locally, it's accessed from inside the containers via `host.docker.internal:11434`.
 
 ### Manual
 
-1. Set up PostgreSQL and Redis instances
-2. Run backend with `uvicorn app.main:app --host 0.0.0.0 --port 8000`
-3. Build frontend with `npm run build` and serve with `npm start`
-
----
-
-## License
-
-This project is developed as part of CMPE 295 — Master's Project at San José State University.
+1. Provision PostgreSQL and Redis (and optionally MinIO).
+2. Run the SQL scripts from `database/init/` against your database, or set `AUTO_CREATE_TABLES=true`.
+3. Run the backend: `uvicorn app.main:app --host 0.0.0.0 --port 8000`
+4. Build the frontend: `npm run build`, then serve with `npm start`.
 
 ---
 
 ## Authors
 
-Built by the LUMO team — Bernardo Flores and collaborators.
+Bernardo Flores, Gautam Thampy, Bhavya Jain, Nivedita Nair
